@@ -216,11 +216,39 @@
     };
   }
 
-  editScheduleBtn.addEventListener('click', function () {
-    if (!confirm('Are you sure you want to edit the PTS schedule?')) return;
+  var EDIT_PASSWORD = 'KGCadmin';
+  var passwordModal = document.getElementById('passwordModal');
+  var passwordInput = document.getElementById('passwordInput');
+  var passwordCancelBtn = document.getElementById('passwordCancelBtn');
+  var passwordOkBtn = document.getElementById('passwordOkBtn');
+
+  function hidePasswordModal() {
+    passwordModal.classList.add('hidden');
+    passwordInput.value = '';
+  }
+
+  function checkPasswordAndOpenEdit() {
+    var entered = passwordInput.value;
+    hidePasswordModal();
+    if (entered !== EDIT_PASSWORD) {
+      alert('Incorrect password');
+      return;
+    }
     mainScreen.classList.add('hidden');
     editScreen.classList.remove('hidden');
     renderEditScreen();
+  }
+
+  editScheduleBtn.addEventListener('click', function () {
+    passwordModal.classList.remove('hidden');
+    passwordInput.value = '';
+    passwordInput.focus();
+  });
+
+  passwordCancelBtn.addEventListener('click', hidePasswordModal);
+  passwordOkBtn.addEventListener('click', checkPasswordAndOpenEdit);
+  passwordInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') checkPasswordAndOpenEdit();
   });
 
   scheduleNameEl.textContent = SCHEDULE_NAME;
