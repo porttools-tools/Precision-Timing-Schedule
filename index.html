@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Turnaround Calculator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-bar">
+    <h1 class="app-bar-title">Precision Timing Schedule</h1>
+    <span class="app-bar-pill" id="scheduleName">Dash 8-400 25min Turn</span>
+  </header>
+
+  <main>
+    <section id="mainScreen" class="screen">
+      <p class="hint">Enter any time (HHMM or HH:MM), then press Enter to calculate.</p>
+      <div id="phaseList" class="phase-list"></div>
+      <div class="actions">
+        <button type="button" class="btn-edit" id="editScheduleBtn">Edit schedule</button>
+      </div>
+    </section>
+
+    <section id="editScreen" class="screen hidden">
+      <p class="hint">Offsets are minutes before off blocks (0). Use negative values.</p>
+      <div id="editList" class="phase-list"></div>
+      <div class="actions">
+        <button type="button" class="btn-save" id="saveScheduleBtn">Save</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
