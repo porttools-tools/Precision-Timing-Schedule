@@ -1,0 +1,11 @@
+{
+  "name": "Precision Timing Schedule",
+  "short_name": "PTS Calc",
+  "icons": [
+    { "src": "icons/android-icon-192x192.png", "sizes": "192x192", "type": "image/png" }
+  ],
+  "start_url": "./",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff"
+}
