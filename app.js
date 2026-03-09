@@ -216,6 +216,7 @@
 
   // --- Navigation ---
   function showLanding() {
+    document.body.classList.add('on-landing');
     landingScreen.classList.remove('hidden');
     mainScreen.classList.add('hidden');
     editScreen.classList.add('hidden');
@@ -227,6 +228,7 @@
   }
 
   function showPTS() {
+    document.body.classList.remove('on-landing');
     landingScreen.classList.add('hidden');
     newScheduleScreen.classList.add('hidden');
     mainScreen.classList.remove('hidden');
@@ -239,6 +241,7 @@
   }
 
   function showNewScheduleEditor() {
+    document.body.classList.remove('on-landing');
     landingScreen.classList.add('hidden');
     mainScreen.classList.add('hidden');
     editScreen.classList.add('hidden');
@@ -249,6 +252,7 @@
   }
 
   function showEditScreen() {
+    document.body.classList.remove('on-landing');
     mainScreen.classList.add('hidden');
     editScreen.classList.remove('hidden');
   }

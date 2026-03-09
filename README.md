@@ -1,6 +1,13 @@
 # Turnaround Calculator (Web App)
 
-Precision Timing Schedule (PTS) for aircraft turnaround times. Enter one time (HH:MM) and the rest are calculated from the schedule. Schedules are stored in **Supabase** and shared for all users. Admin mode (password-protected) allows creating and editing schedules.
+Precision Timing Schedule (PTS): a web app for viewing and calculating turnaround key times. Schedules are stored in **Supabase** and shared for all users.
+
+## Basic functionality
+
+- **Landing page** — Lists all schedules. Tap or click a schedule to open it.
+- **Schedule view** — Each schedule shows a list of key times with name and offset. Enter one time (24-hour, e.g. HH:MM) in any row; the app calculates and fills the rest. The row you edit is highlighted; rows marked as key times show a red border.
+- **Admin mode** — A password-protected mode (available from the landing page) unlocks **Edit Schedule** and **+ New schedule**. In admin you can create schedules, edit names and offsets, add or remove key time rows, and mark which rows are “key times” (red border). Exit admin to return to view-only for those actions.
+- **Responsive layout** — On small screens the main title is hidden except on the landing page to save space.
 
 ## Run locally
 
@@ -75,10 +82,3 @@ If you only need the “key time” (red border) column, run:
 ```sql
 ALTER TABLE key_time ADD COLUMN IF NOT EXISTS is_key_time BOOLEAN DEFAULT false;
 ```
-
-## Usage
-
-- **Landing:** Open a schedule from the list (or use **Admin** to create/edit).
-- **Main screen:** Enter a 24‑hour time (e.g. `14:30`) in any row; the rest update. The row you typed in is highlighted (red left border). Rows marked as key times show a red border.
-- **Admin:** Click **Admin** in the header (landing only), enter password → **Edit Schedule** and **+ New schedule** appear. Click **Exit Admin** to lock the app again.
-- **Edit schedule:** In admin, open a schedule → **Edit Schedule** → change names/offsets, use **Key time** to flag rows (red border in schedule), then **Save**.

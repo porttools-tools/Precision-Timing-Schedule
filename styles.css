@@ -48,6 +48,16 @@ body {
   pointer-events: none;
 }
 
+/* Hide header title on small screens (phones) except on landing */
+@media (max-width: 768px) {
+  .app-bar-title-wrap {
+    display: none;
+  }
+  body.on-landing .app-bar-title-wrap {
+    display: block;
+  }
+}
+
 .app-bar-pill {
   padding: 5px 10px;
   border: 1px solid var(--text-on-dark);
