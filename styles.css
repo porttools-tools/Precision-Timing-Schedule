@@ -48,8 +48,8 @@ body {
   pointer-events: none;
 }
 
-/* Hide header title on small screens (phones) except on landing */
-@media (max-width: 768px) {
+/* Hide header title on small/medium screens except on landing */
+@media (max-width: 1024px) {
   .app-bar-title-wrap {
     display: none;
   }
