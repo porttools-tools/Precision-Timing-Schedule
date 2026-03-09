@@ -308,6 +308,14 @@ main {
 .timeline-row.key-time-highlight .timeline-content {
   border: 2px solid var(--header-red);
   border-radius: 4px;
+  color: var(--header-red);
+  font-weight: bold;
+}
+
+.timeline-row.key-time-highlight .timeline-label,
+.timeline-row.key-time-highlight .timeline-input {
+  color: var(--header-red);
+  font-weight: bold;
 }
 
 .timeline-label {
