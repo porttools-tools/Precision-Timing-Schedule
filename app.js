@@ -351,6 +351,7 @@
         if (e.key === 'Enter') {
           e.preventDefault();
           commitTime(index, input);
+          input.blur();
         }
       });
       input.addEventListener('change', function () {
