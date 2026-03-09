@@ -314,8 +314,13 @@ main {
 
 .timeline-row.key-time-highlight .timeline-label,
 .timeline-row.key-time-highlight .timeline-input {
-  color: var(--header-red);
-  font-weight: bold;
+  color: var(--header-red) !important;
+  font-weight: bold !important;
+}
+
+/* Force red bold on key-time input on mobile (overrides browser defaults) */
+.timeline-row.key-time-highlight .timeline-input {
+  -webkit-text-fill-color: var(--header-red);
 }
 
 .timeline-label {
