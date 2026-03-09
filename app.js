@@ -1,48 +1,12 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'turnaround_schedule_v2';
-  const SCHEDULE_NAME = 'Dash 8-400 25min Turn';
+  // --- Supabase ---
+  const SUPABASE_URL = 'https://rojmgzsoslawullsdnpq.supabase.co';
+  const SUPABASE_ANON_KEY = 'sb_publishable_SbvE1iQBhPJrw6OFSxYR9g__z710_Se';
+  const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
-  const DEFAULT_PHASES = [
-    { id: 'p1', name: 'Freight closed for acceptance', offsetMinutes: -60 },
-    { id: 'p2', name: 'Load Instruction Report (LIR) received', offsetMinutes: -50 },
-    { id: 'p3', name: 'Pre boards at gate, flight closed for check-in', offsetMinutes: -30 },
-    { id: 'p4', name: 'Aircraft on blocks', offsetMinutes: -25 },
-    { id: 'p5', name: 'Catering exchange commences', offsetMinutes: -23 },
-    { id: 'p6', name: 'Deboarding complete, cabin cleaning commences', offsetMinutes: -20 },
-    { id: 'p7', name: 'Pre-board at aircraft, general boarding starts', offsetMinutes: -17 },
-    { id: 'p8', name: 'First passenger at aircraft', offsetMinutes: -16 },
-    { id: 'p9', name: 'Catering exchange complete', offsetMinutes: -12 },
-    { id: 'p10', name: 'Fail to board process starts', offsetMinutes: -10 },
-    { id: 'p11', name: 'All passengers onboard', offsetMinutes: -7 },
-    { id: 'p12', name: 'First load clearance, cargo door close', offsetMinutes: -5 },
-    { id: 'p13', name: 'Final load sheet submitted by Crew', offsetMinutes: -4 },
-    { id: 'p14', name: 'Doors closed', offsetMinutes: -3 },
-    { id: 'p15', name: 'Aircraft off blocks', offsetMinutes: 0 },
-  ];
-
-  function loadSchedule() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return JSON.parse(JSON.stringify(DEFAULT_PHASES));
-      const list = JSON.parse(raw);
-      if (Array.isArray(list) && list.length > 0) {
-        return list.map(function (p) {
-          return {
-            id: p.id || 'p' + p.offsetMinutes,
-            name: p.name || '',
-            offsetMinutes: Number(p.offsetMinutes),
-          };
-        });
-      }
-    } catch (_) {}
-    return JSON.parse(JSON.stringify(DEFAULT_PHASES));
-  }
-
-  function saveSchedule(phases) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(phases));
-  }
+  const ADMIN_PASSWORD = 'PTadmin';
 
   /**
    * Parse time string to minutes since midnight.
@@ -94,35 +58,259 @@
   }
 
   // --- State ---
-  var phases = loadSchedule();
+  var currentScheduleId = null;
+  var currentScheduleName = '';
+  var keyTimes = [];
   var anchorIndex = null;
   var isApplying = false;
+  var isAdminMode = false;
 
+  // --- DOM ---
+  var landingScreen = document.getElementById('landingScreen');
   var mainScreen = document.getElementById('mainScreen');
   var editScreen = document.getElementById('editScreen');
+  var newScheduleScreen = document.getElementById('newScheduleScreen');
+  var scheduleListEl = document.getElementById('scheduleList');
   var phaseListEl = document.getElementById('phaseList');
   var editListEl = document.getElementById('editList');
+  var newKeyTimeListEl = document.getElementById('newKeyTimeList');
+  var scheduleNameEl = document.getElementById('scheduleName');
+  var backToSchedulesBtn = document.getElementById('backToSchedulesBtn');
   var editScheduleBtn = document.getElementById('editScheduleBtn');
   var saveScheduleBtn = document.getElementById('saveScheduleBtn');
-  var scheduleNameEl = document.getElementById('scheduleName');
+  var editAddKeyTimeBtn = document.getElementById('editAddKeyTimeBtn');
+  var editCancelBtn = document.getElementById('editCancelBtn');
+  var deletePtsBtn = document.getElementById('deletePtsBtn');
+  var newScheduleBtn = document.getElementById('newScheduleBtn');
+  var newScheduleNameEl = document.getElementById('newScheduleName');
+  var addKeyTimeBtn = document.getElementById('addKeyTimeBtn');
+  var saveNewScheduleBtn = document.getElementById('saveNewScheduleBtn');
+  var cancelNewScheduleBtn = document.getElementById('cancelNewScheduleBtn');
+  var adminBtn = document.getElementById('adminBtn');
+  var adminPasswordModal = document.getElementById('adminPasswordModal');
+  var adminPasswordInput = document.getElementById('adminPasswordInput');
+  var adminPasswordCancelBtn = document.getElementById('adminPasswordCancelBtn');
+  var adminPasswordOkBtn = document.getElementById('adminPasswordOkBtn');
 
+  // --- Admin UI ---
+  function updateAdminUI() {
+    if (adminBtn) adminBtn.textContent = isAdminMode ? 'Exit Admin' : 'Admin';
+    if (newScheduleBtn) newScheduleBtn.style.display = isAdminMode ? '' : 'none';
+    if (editScheduleBtn) editScheduleBtn.style.display = isAdminMode ? '' : 'none';
+  }
+
+  // --- Supabase API (tables: aircraft, key_time) ---
+  function loadScheduleList() {
+    if (!supabase) return Promise.resolve([]);
+    return supabase
+      .from('aircraft')
+      .select('id, name')
+      .order('name')
+      .then(function (res) {
+        if (res.error) {
+          console.error('loadScheduleList', res.error);
+          return [];
+        }
+        return res.data || [];
+      });
+  }
+
+  function loadKeyTimes(aircraftId) {
+    if (!supabase) return Promise.resolve([]);
+    return supabase
+      .from('key_time')
+      .select('id, name, offset_minutes, sort_order, is_key_time')
+      .eq('aircraft_id', aircraftId)
+      .order('sort_order', { ascending: true })
+      .then(function (res) {
+        if (res.error) {
+          console.error('loadKeyTimes', res.error);
+          return [];
+        }
+        var rows = res.data || [];
+        var list = rows.map(function (r, i) {
+          return {
+            id: r.id,
+            name: r.name || '',
+            offsetMinutes: Number(r.offset_minutes),
+            sortOrder: r.sort_order != null ? r.sort_order : i + 1,
+            isKeyTime: r.is_key_time === true
+          };
+        });
+        list.sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
+        return list;
+      });
+  }
+
+  function saveKeyTimes(aircraftId, keyTimesToSave) {
+    if (!supabase) return Promise.reject(new Error('No Supabase'));
+    var sorted = keyTimesToSave.slice().sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
+    return supabase
+      .from('key_time')
+      .delete()
+      .eq('aircraft_id', aircraftId)
+      .then(function (delRes) {
+        if (delRes.error) return Promise.reject(delRes.error);
+        if (sorted.length === 0) return Promise.resolve();
+        var rows = sorted.map(function (kt, i) {
+          return {
+            aircraft_id: aircraftId,
+            name: kt.name || ('Time ' + (i + 1)),
+            offset_minutes: Number(kt.offsetMinutes),
+            sort_order: i + 1,
+            is_key_time: !!kt.isKeyTime
+          };
+        });
+        return supabase.from('key_time').insert(rows);
+      })
+      .then(function (insertRes) {
+        if (insertRes && insertRes.error) return Promise.reject(insertRes.error);
+        return Promise.resolve();
+      });
+  }
+
+  function createSchedule(name, keyTimesToSave) {
+    if (!supabase) return Promise.reject(new Error('No Supabase'));
+    var nameTrim = (name || '').trim();
+    if (!nameTrim) return Promise.reject(new Error('Schedule name is required'));
+    var valid = keyTimesToSave.filter(function (kt) {
+      return (kt.name && kt.name.trim()) || (kt.offsetMinutes !== undefined && kt.offsetMinutes !== null);
+    });
+    if (valid.length === 0) return Promise.reject(new Error('Add at least one time'));
+
+    var sorted = valid.slice().sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
+    return supabase
+      .from('aircraft')
+      .insert({ name: nameTrim })
+      .select('id')
+      .single()
+      .then(function (res) {
+        if (res.error) return Promise.reject(res.error);
+        var scheduleId = res.data.id;
+        var rows = sorted.map(function (kt, i) {
+          return {
+            aircraft_id: scheduleId,
+            name: (kt.name && kt.name.trim()) || ('Time ' + (i + 1)),
+            offset_minutes: Number(kt.offsetMinutes),
+            sort_order: i + 1,
+            is_key_time: !!kt.isKeyTime
+          };
+        });
+        return supabase.from('key_time').insert(rows).then(function (ir) {
+          if (ir.error) return Promise.reject(ir.error);
+          return scheduleId;
+        });
+      });
+  }
+
+  function deleteSchedule(scheduleId) {
+    if (!supabase) return Promise.reject(new Error('No Supabase'));
+    return supabase.from('key_time').delete().eq('aircraft_id', scheduleId).then(function (delRes) {
+      if (delRes.error) return Promise.reject(delRes.error);
+      return supabase.from('aircraft').delete().eq('id', scheduleId);
+    }).then(function (res) {
+      if (res.error) return Promise.reject(res.error);
+      return Promise.resolve();
+    });
+  }
+
+  // --- Navigation ---
+  function showLanding() {
+    landingScreen.classList.remove('hidden');
+    mainScreen.classList.add('hidden');
+    editScreen.classList.add('hidden');
+    newScheduleScreen.classList.add('hidden');
+    scheduleNameEl.classList.add('hidden');
+    backToSchedulesBtn.classList.add('hidden');
+    adminBtn.classList.remove('hidden');
+    updateAdminUI();
+  }
+
+  function showPTS() {
+    landingScreen.classList.add('hidden');
+    newScheduleScreen.classList.add('hidden');
+    mainScreen.classList.remove('hidden');
+    editScreen.classList.add('hidden');
+    scheduleNameEl.textContent = currentScheduleName;
+    scheduleNameEl.classList.remove('hidden');
+    backToSchedulesBtn.classList.remove('hidden');
+    adminBtn.classList.add('hidden');
+    updateAdminUI();
+  }
+
+  function showNewScheduleEditor() {
+    landingScreen.classList.add('hidden');
+    mainScreen.classList.add('hidden');
+    editScreen.classList.add('hidden');
+    newScheduleScreen.classList.remove('hidden');
+    scheduleNameEl.classList.add('hidden');
+    backToSchedulesBtn.classList.add('hidden');
+    adminBtn.classList.add('hidden');
+  }
+
+  function showEditScreen() {
+    mainScreen.classList.add('hidden');
+    editScreen.classList.remove('hidden');
+  }
+
+  // --- Landing ---
+  function renderLanding() {
+    scheduleListEl.innerHTML = '';
+    scheduleListEl.appendChild(document.createTextNode('Loading…'));
+    loadScheduleList().then(function (list) {
+      scheduleListEl.innerHTML = '';
+      if (list.length === 0) {
+        var empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = 'No schedules yet. Create one with "New schedule".';
+        scheduleListEl.appendChild(empty);
+        return;
+      }
+      list.forEach(function (a) {
+        var card = document.createElement('div');
+        card.className = 'schedule-card';
+        card.innerHTML =
+          '<span class="schedule-card-name">' + escapeHtml(a.name) + '</span>';
+        card.addEventListener('click', function () {
+          openSchedule(a.id, a.name);
+        });
+        scheduleListEl.appendChild(card);
+      });
+    });
+  }
+
+  function openSchedule(id, name) {
+    currentScheduleId = id;
+    currentScheduleName = name;
+    phaseListEl.innerHTML = '';
+    phaseListEl.appendChild(document.createTextNode('Loading…'));
+    loadKeyTimes(id).then(function (list) {
+      keyTimes = list;
+      anchorIndex = null;
+      if (keyTimes.length === 0) {
+        phaseListEl.innerHTML = '<p class="hint">No times for this schedule. Edit Schedule to add some.</p>';
+        showPTS();
+        return;
+      }
+      showPTS();
+      renderMainScreen();
+    });
+  }
+
+  // --- Main schedule screen (timeline) ---
   function applyScheduleFromAnchor(anchorMinutes) {
     if (anchorIndex == null) return;
-    var anchorOffset = phases[anchorIndex].offsetMinutes;
+    var anchorOffset = keyTimes[anchorIndex].offsetMinutes;
     var inputs = phaseListEl.querySelectorAll('.timeline-input');
     isApplying = true;
-    for (var i = 0; i < phases.length; i++) {
-      var diff = phases[i].offsetMinutes - anchorOffset;
+    for (var i = 0; i < keyTimes.length; i++) {
+      var diff = keyTimes[i].offsetMinutes - anchorOffset;
       var minutes = anchorMinutes + diff;
       inputs[i].value = formatTime(minutes);
     }
     isApplying = false;
   }
 
-  /**
-   * Called only when user commits a time: Enter key or blur.
-   * Parse value, set as anchor, fill all times, and show formatted value in the field.
-   */
   function commitTime(index, inputEl) {
     if (isApplying) return;
     var value = inputEl.value.trim();
@@ -140,14 +328,14 @@
 
   function renderMainScreen() {
     phaseListEl.innerHTML = '';
-    phases.forEach(function (phase, index) {
+    keyTimes.forEach(function (kt, index) {
       var row = document.createElement('div');
-      row.className = 'timeline-row' + (index === anchorIndex ? ' anchor' : '');
-      var offsetLabel = phase.offsetMinutes <= 0 ? String(phase.offsetMinutes) : '+' + phase.offsetMinutes;
+      row.className = 'timeline-row' + (index === anchorIndex ? ' anchor' : '') + (kt.isKeyTime ? ' key-time-highlight' : '');
+      var offsetLabel = kt.offsetMinutes <= 0 ? String(kt.offsetMinutes) : '+' + kt.offsetMinutes;
       row.innerHTML =
         '<div class="timeline-offset">' + offsetLabel + '</div>' +
         '<div class="timeline-content">' +
-          '<span class="timeline-label">' + escapeHtml(phase.name) + '</span>' +
+          '<span class="timeline-label">' + escapeHtml(kt.name) + '</span>' +
           '<input type="text" class="timeline-input" placeholder="HHMM" data-index="' + index + '" />' +
         '</div>';
       var input = row.querySelector('.timeline-input');
@@ -169,88 +357,328 @@
     });
   }
 
+  // --- Edit schedule (times) ---
   function renderEditScreen() {
-    var editing = phases.map(function (p) { return { id: p.id, name: p.name, offsetMinutes: p.offsetMinutes }; });
-    editListEl.innerHTML = '';
-
-    editing.forEach(function (phase, index) {
-      var row = document.createElement('div');
-      row.className = 'timeline-row edit-row';
-      var offsetLabel = phase.offsetMinutes <= 0 ? String(phase.offsetMinutes) : '+' + phase.offsetMinutes;
-      row.innerHTML =
-        '<div class="timeline-offset">' + offsetLabel + '</div>' +
-        '<div class="timeline-content">' +
-          '<label class="timeline-label">Phase ' + (index + 1) + '</label>' +
-          '<input type="text" class="timeline-input-name" value="' + escapeHtml(phase.name) + '" data-index="' + index + '" />' +
-          '<input type="number" class="timeline-input-offset" value="' + phase.offsetMinutes + '" data-index="' + index + '" />' +
-        '</div>';
-      editListEl.appendChild(row);
+    var editing = keyTimes.map(function (p) {
+      return { id: p.id, name: p.name, offsetMinutes: p.offsetMinutes, isKeyTime: !!p.isKeyTime };
     });
 
-    editListEl.querySelectorAll('.timeline-input-name').forEach(function (input) {
-      input.addEventListener('input', function () {
-        var i = parseInt(input.getAttribute('data-index'), 10);
-        editing[i].name = input.value.trim() || ('Phase ' + (i + 1));
+    function renderEditList() {
+      editing.sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
+      editListEl.innerHTML = '';
+      editing.forEach(function (kt, index) {
+        var row = document.createElement('div');
+        row.className = 'timeline-row edit-row edit-key-time-row' + (kt.isKeyTime ? ' key-time-highlight' : '');
+        var offsetLabel = kt.offsetMinutes <= 0 ? String(kt.offsetMinutes) : '+' + kt.offsetMinutes;
+        var canRemove = editing.length > 1;
+        row.innerHTML =
+          '<div class="timeline-offset">' + offsetLabel + '</div>' +
+          '<div class="timeline-content">' +
+            '<label class="timeline-label">Time ' + (index + 1) + '</label>' +
+            '<input type="text" class="timeline-input-name" value="' + escapeHtml(kt.name) + '" data-index="' + index + '" />' +
+            '<input type="number" class="timeline-input-offset" value="' + kt.offsetMinutes + '" data-index="' + index + '" />' +
+            '<button type="button" class="btn-key-time" data-index="' + index + '" title="Toggle key time (red border in schedule)">' + (kt.isKeyTime ? 'Key time ✓' : 'Key time') + '</button>' +
+            (canRemove ? '<button type="button" class="btn-remove-key-time" data-index="' + index + '" title="Remove time">Remove</button>' : '') +
+          '</div>';
+        editListEl.appendChild(row);
       });
-    });
-    editListEl.querySelectorAll('.timeline-input-offset').forEach(function (input) {
-      input.addEventListener('input', function () {
-        var i = parseInt(input.getAttribute('data-index'), 10);
-        var n = parseInt(input.value, 10);
-        if (!isNaN(n)) editing[i].offsetMinutes = n;
-      });
-    });
 
-    saveScheduleBtn.onclick = function () {
-      phases = editing;
-      saveSchedule(phases);
+      function commitEditAndRefresh() {
+        renderEditList();
+      }
+      editListEl.querySelectorAll('.timeline-input-name').forEach(function (input) {
+        input.addEventListener('input', function () {
+          var i = parseInt(input.getAttribute('data-index'), 10);
+          editing[i].name = input.value.trim() || ('Time ' + (i + 1));
+        });
+        input.addEventListener('blur', function () {
+          var i = parseInt(input.getAttribute('data-index'), 10);
+          editing[i].name = input.value.trim() || ('Time ' + (i + 1));
+          commitEditAndRefresh();
+        });
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+          }
+        });
+      });
+      editListEl.querySelectorAll('.timeline-input-offset').forEach(function (input) {
+        input.addEventListener('input', function () {
+          var i = parseInt(input.getAttribute('data-index'), 10);
+          var n = parseInt(input.value, 10);
+          if (!isNaN(n)) editing[i].offsetMinutes = n;
+        });
+        input.addEventListener('blur', function () {
+          var i = parseInt(input.getAttribute('data-index'), 10);
+          var n = parseInt(input.value, 10);
+          if (!isNaN(n)) editing[i].offsetMinutes = n;
+          commitEditAndRefresh();
+        });
+        input.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            input.blur();
+          }
+        });
+      });
+      editListEl.querySelectorAll('.btn-key-time').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = parseInt(this.getAttribute('data-index'), 10);
+          editing[i].isKeyTime = !editing[i].isKeyTime;
+          renderEditList();
+        });
+      });
+      editListEl.querySelectorAll('.btn-remove-key-time').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = parseInt(this.getAttribute('data-index'), 10);
+          editing.splice(i, 1);
+          renderEditList();
+        });
+      });
+    }
+
+    renderEditList();
+
+    editAddKeyTimeBtn.onclick = function () {
+      editing.push({ id: null, name: '', offsetMinutes: 0, isKeyTime: false });
+      renderEditList();
+    };
+
+    editCancelBtn.onclick = function () {
       mainScreen.classList.remove('hidden');
       editScreen.classList.add('hidden');
-      renderMainScreen();
-      if (anchorIndex != null) {
-        var inputs = phaseListEl.querySelectorAll('.timeline-input');
-        var current = inputs[anchorIndex].value;
-        var minutes = parseTime(current);
-        if (minutes != null) applyScheduleFromAnchor(minutes);
+    };
+
+    deletePtsBtn.onclick = function () {
+      if (!confirm('Delete this PTS?\n\n"' + currentScheduleName + '"\n\nThis cannot be undone.')) return;
+      deleteSchedule(currentScheduleId)
+        .then(function () {
+          showLanding();
+          renderLanding();
+        })
+        .catch(function (err) {
+          alert('Could not delete PTS: ' + (err.message || err));
+        });
+    };
+
+    saveScheduleBtn.onclick = function () {
+      if (editing.length === 0) {
+        alert('Keep at least one time.');
+        return;
       }
+      var oldAnchorOffset = anchorIndex != null ? keyTimes[anchorIndex].offsetMinutes : null;
+      keyTimes = editing.map(function (e) { return { id: e.id, name: e.name, offsetMinutes: e.offsetMinutes, isKeyTime: e.isKeyTime }; });
+      keyTimes.sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
+      if (oldAnchorOffset != null) {
+        var idx = keyTimes.findIndex(function (kt) { return kt.offsetMinutes === oldAnchorOffset; });
+        anchorIndex = idx >= 0 ? idx : null;
+      }
+      saveKeyTimes(currentScheduleId, keyTimes)
+        .then(function () {
+          mainScreen.classList.remove('hidden');
+          editScreen.classList.add('hidden');
+          renderMainScreen();
+          if (anchorIndex != null) {
+            var inputs = phaseListEl.querySelectorAll('.timeline-input');
+            var current = inputs[anchorIndex].value;
+            var minutes = parseTime(current);
+            if (minutes != null) applyScheduleFromAnchor(minutes);
+          }
+        })
+        .catch(function (err) {
+          alert('Could not save: ' + (err.message || err));
+        });
     };
   }
 
-  var EDIT_PASSWORD = 'KGCadmin';
-  var passwordModal = document.getElementById('passwordModal');
-  var passwordInput = document.getElementById('passwordInput');
-  var passwordCancelBtn = document.getElementById('passwordCancelBtn');
-  var passwordOkBtn = document.getElementById('passwordOkBtn');
+  // --- New schedule editor ---
+  var newKeyTimes = [{ name: '', offsetMinutes: 0, isKeyTime: false }];
 
-  function hidePasswordModal() {
-    passwordModal.classList.add('hidden');
-    passwordInput.value = '';
+  function renderNewScheduleEditor() {
+    newScheduleNameEl.value = '';
+    newKeyTimes = [{ name: '', offsetMinutes: 0, isKeyTime: false }];
+    renderNewKeyTimeList();
   }
 
-  function checkPasswordAndOpenEdit() {
-    var entered = passwordInput.value;
-    hidePasswordModal();
-    if (entered !== EDIT_PASSWORD) {
+  function renderNewKeyTimeList() {
+    newKeyTimes.sort(function (a, b) { return (a.offsetMinutes || 0) - (b.offsetMinutes || 0); });
+    newKeyTimeListEl.innerHTML = '';
+    newKeyTimes.forEach(function (kt, index) {
+      var row = document.createElement('div');
+      row.className = 'timeline-row edit-row new-key-time-row' + (kt.isKeyTime ? ' key-time-highlight' : '');
+      var offsetVal = kt.offsetMinutes !== undefined && kt.offsetMinutes !== null ? kt.offsetMinutes : '';
+      var canRemove = newKeyTimes.length > 1;
+      row.innerHTML =
+        '<div class="timeline-offset">' + (kt.offsetMinutes <= 0 ? String(kt.offsetMinutes) : (kt.offsetMinutes > 0 ? '+' + kt.offsetMinutes : '')) + '</div>' +
+        '<div class="timeline-content">' +
+          '<label class="timeline-label">Time ' + (index + 1) + '</label>' +
+          '<input type="text" class="timeline-input-name" placeholder="e.g. Doors closed" data-index="' + index + '" value="' + escapeHtml(kt.name || '') + '" />' +
+          '<input type="number" class="timeline-input-offset" placeholder="0" data-index="' + index + '" value="' + (offsetVal === '' ? '' : offsetVal) + '" />' +
+          '<button type="button" class="btn-key-time" data-index="' + index + '" title="Toggle key time (red border in schedule)">' + (kt.isKeyTime ? 'Key time ✓' : 'Key time') + '</button>' +
+          (canRemove ? '<button type="button" class="btn-remove-key-time" data-index="' + index + '" title="Remove time">Remove</button>' : '') +
+        '</div>';
+      newKeyTimeListEl.appendChild(row);
+    });
+
+    function commitNewKeyTimeAndRefresh() {
+      newKeyTimeListEl.querySelectorAll('.timeline-input-name').forEach(function (input) {
+        var i = parseInt(input.getAttribute('data-index'), 10);
+        if (newKeyTimes[i]) newKeyTimes[i].name = input.value.trim();
+      });
+      newKeyTimeListEl.querySelectorAll('.timeline-input-offset').forEach(function (input) {
+        var i = parseInt(input.getAttribute('data-index'), 10);
+        var n = input.value === '' ? null : parseInt(input.value, 10);
+        if (newKeyTimes[i]) newKeyTimes[i].offsetMinutes = isNaN(n) ? 0 : n;
+      });
+      newKeyTimes.sort(function (a, b) { return (a.offsetMinutes || 0) - (b.offsetMinutes || 0); });
+      renderNewKeyTimeList();
+    }
+    newKeyTimeListEl.querySelectorAll('.timeline-input-name').forEach(function (input) {
+      input.addEventListener('input', function () {
+        var i = parseInt(input.getAttribute('data-index'), 10);
+        newKeyTimes[i].name = input.value.trim();
+      });
+      input.addEventListener('blur', commitNewKeyTimeAndRefresh);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          input.blur();
+        }
+      });
+    });
+    newKeyTimeListEl.querySelectorAll('.timeline-input-offset').forEach(function (input) {
+      input.addEventListener('input', function () {
+        var i = parseInt(input.getAttribute('data-index'), 10);
+        var n = input.value === '' ? null : parseInt(input.value, 10);
+        newKeyTimes[i].offsetMinutes = isNaN(n) ? 0 : n;
+      });
+      input.addEventListener('blur', commitNewKeyTimeAndRefresh);
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          input.blur();
+        }
+      });
+    });
+    newKeyTimeListEl.querySelectorAll('.btn-key-time').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(this.getAttribute('data-index'), 10);
+        newKeyTimes[i].isKeyTime = !newKeyTimes[i].isKeyTime;
+        renderNewKeyTimeList();
+      });
+    });
+    newKeyTimeListEl.querySelectorAll('.btn-remove-key-time').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(this.getAttribute('data-index'), 10);
+        newKeyTimes.splice(i, 1);
+        renderNewKeyTimeList();
+      });
+    });
+  }
+
+  addKeyTimeBtn.addEventListener('click', function () {
+    newKeyTimes.push({ name: '', offsetMinutes: 0, isKeyTime: false });
+    renderNewKeyTimeList();
+  });
+
+  saveNewScheduleBtn.addEventListener('click', function () {
+    var name = newScheduleNameEl.value.trim();
+    var toSave = newKeyTimes.map(function (kt) {
+      return {
+        name: (kt.name && kt.name.trim()) || '',
+        offsetMinutes: kt.offsetMinutes !== undefined && kt.offsetMinutes !== null ? Number(kt.offsetMinutes) : 0,
+        isKeyTime: !!kt.isKeyTime
+      };
+    }).filter(function (kt) {
+      return (kt.name && kt.name.length) > 0 || kt.offsetMinutes !== undefined;
+    });
+    if (!name) {
+      alert('Enter a schedule name.');
+      return;
+    }
+    if (toSave.length === 0) {
+      alert('Add at least one time.');
+      return;
+    }
+    saveNewScheduleBtn.disabled = true;
+    createSchedule(name, toSave)
+      .then(function (scheduleId) {
+        currentScheduleId = scheduleId;
+        currentScheduleName = name;
+        return loadKeyTimes(scheduleId);
+      })
+      .then(function (list) {
+        keyTimes = list;
+        anchorIndex = null;
+        showPTS();
+        renderMainScreen();
+      })
+      .catch(function (err) {
+        alert('Could not create schedule: ' + (err.message || err));
+      })
+      .finally(function () {
+        saveNewScheduleBtn.disabled = false;
+      });
+  });
+
+  cancelNewScheduleBtn.addEventListener('click', function () {
+    showLanding();
+    renderLanding();
+  });
+
+  // --- Admin button & password modal ---
+  function hideAdminPasswordModal() {
+    adminPasswordModal.classList.add('hidden');
+    adminPasswordInput.value = '';
+  }
+
+  adminBtn.addEventListener('click', function () {
+    if (isAdminMode) {
+      isAdminMode = false;
+      updateAdminUI();
+      return;
+    }
+    adminPasswordModal.classList.remove('hidden');
+    adminPasswordInput.value = '';
+    adminPasswordInput.focus();
+  });
+
+  adminPasswordCancelBtn.addEventListener('click', hideAdminPasswordModal);
+  adminPasswordOkBtn.addEventListener('click', function () {
+    var entered = adminPasswordInput.value;
+    hideAdminPasswordModal();
+    if (entered !== ADMIN_PASSWORD) {
       alert('Incorrect password');
       return;
     }
-    mainScreen.classList.add('hidden');
-    editScreen.classList.remove('hidden');
-    renderEditScreen();
-  }
+    isAdminMode = true;
+    updateAdminUI();
+  });
+  adminPasswordInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') adminPasswordOkBtn.click();
+  });
 
+  // --- Edit Schedule (admin only; button visibility set by updateAdminUI) ---
   editScheduleBtn.addEventListener('click', function () {
-    passwordModal.classList.remove('hidden');
-    passwordInput.value = '';
-    passwordInput.focus();
+    showEditScreen();
+    renderEditScreen();
   });
 
-  passwordCancelBtn.addEventListener('click', hidePasswordModal);
-  passwordOkBtn.addEventListener('click', checkPasswordAndOpenEdit);
-  passwordInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') checkPasswordAndOpenEdit();
+  // --- Back to schedule list ---
+  backToSchedulesBtn.addEventListener('click', function () {
+    showLanding();
+    renderLanding();
   });
 
-  scheduleNameEl.textContent = SCHEDULE_NAME;
-  renderMainScreen();
+  // --- New schedule button ---
+  newScheduleBtn.addEventListener('click', function () {
+    showNewScheduleEditor();
+    renderNewScheduleEditor();
+  });
+
+  // --- Init: show landing ---
+  updateAdminUI();
+  showLanding();
+  renderLanding();
 })();
