@@ -63,7 +63,6 @@
   var keyTimes = [];
   var anchorIndex = null;
   var isApplying = false;
-  var skipSelectAndBlurOnNextFocus = false;
   var isAdminMode = false;
 
   // --- DOM ---
@@ -346,18 +345,12 @@
       var input = row.querySelector('.timeline-input');
 
       input.addEventListener('focus', function () {
-        if (skipSelectAndBlurOnNextFocus) {
-          skipSelectAndBlurOnNextFocus = false;
-          input.blur();
-          return;
-        }
         input.select();
       });
       input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
           e.preventDefault();
           commitTime(index, input);
-          skipSelectAndBlurOnNextFocus = true;
           input.blur();
         }
       });
