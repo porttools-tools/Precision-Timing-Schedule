@@ -290,6 +290,7 @@
     scheduleNameEl.textContent = currentScheduleName;
     scheduleNameEl.classList.remove('hidden');
     backToSchedulesBtn.classList.remove('hidden');
+    if (filterBtn) filterBtn.classList.add('hidden');
     adminBtn.classList.add('hidden');
     updateAdminUI();
   }
@@ -302,6 +303,7 @@
     newScheduleScreen.classList.remove('hidden');
     scheduleNameEl.classList.add('hidden');
     backToSchedulesBtn.classList.add('hidden');
+    if (filterBtn) filterBtn.classList.add('hidden');
     adminBtn.classList.add('hidden');
   }
 
@@ -309,6 +311,7 @@
     document.body.classList.remove('on-landing');
     mainScreen.classList.add('hidden');
     editScreen.classList.remove('hidden');
+    if (filterBtn) filterBtn.classList.add('hidden');
   }
 
   // --- Landing ---
