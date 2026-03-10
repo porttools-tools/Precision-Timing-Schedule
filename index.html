@@ -23,41 +23,68 @@
   <meta name="msapplication-TileImage" content="icons/ms-icon-144x144.png">
   <meta name="theme-color" content="#ffffff">
 </head>
-<body>
+<body class="on-landing">
   <header class="app-bar">
-    <h1 class="app-bar-title">Precision Timing Schedule</h1>
-    <span class="app-bar-pill" id="scheduleName">Dash 8-400 25min Turn</span>
+    <button type="button" class="btn-back hidden" id="backToSchedulesBtn">Back</button>
+    <div class="app-bar-title-wrap">
+      <h1 class="app-bar-title">Precision Timing Schedule</h1>
+    </div>
+    <span class="app-bar-pill hidden" id="scheduleName"></span>
+    <button type="button" class="btn-admin" id="adminBtn">Admin</button>
   </header>
 
   <main>
-    <section id="mainScreen" class="screen">
+    <section id="landingScreen" class="screen">
+      <div id="scheduleList" class="schedule-list"></div>
+      <div class="actions">
+        <button type="button" class="btn-new-schedule" id="newScheduleBtn">+ New schedule</button>
+      </div>
+    </section>
+
+    <section id="mainScreen" class="screen hidden">
       <p class="hint">Enter any time (HHMM or HH:MM), then press Enter to calculate.</p>
       <div id="phaseList" class="phase-list"></div>
       <div class="actions">
-        <button type="button" class="btn-edit" id="editScheduleBtn">Edit schedule</button>
+        <button type="button" class="btn-edit" id="editScheduleBtn">Edit Schedule</button>
       </div>
     </section>
 
     <section id="editScreen" class="screen hidden">
-      <p class="hint">Offsets are minutes before off blocks (0). Use negative values.</p>
       <div id="editList" class="phase-list"></div>
-      <div class="actions">
+      <div class="actions actions-row">
+        <button type="button" class="btn-add-key-time" id="editAddKeyTimeBtn">+ Add time</button>
         <button type="button" class="btn-save" id="saveScheduleBtn">Save</button>
+        <button type="button" class="btn-cancel" id="editCancelBtn">Cancel</button>
+        <button type="button" class="btn-delete-pts" id="deletePtsBtn">Delete PTS</button>
+      </div>
+    </section>
+
+    <section id="newScheduleScreen" class="screen hidden">
+      <div class="new-schedule-form">
+        <label for="newScheduleName">Schedule name</label>
+        <input type="text" id="newScheduleName" placeholder="e.g. Dash 8-400 25min Turn" />
+      </div>
+      <div id="newKeyTimeList" class="phase-list"></div>
+      <div class="actions actions-row">
+        <button type="button" class="btn-add-key-time" id="addKeyTimeBtn">+ Add time</button>
+        <button type="button" class="btn-save" id="saveNewScheduleBtn">Save Schedule</button>
+        <button type="button" class="btn-cancel" id="cancelNewScheduleBtn">Cancel</button>
       </div>
     </section>
   </main>
 
-  <div id="passwordModal" class="password-modal hidden">
+  <div id="adminPasswordModal" class="password-modal hidden">
     <div class="password-modal-box">
-      <label for="passwordInput">Enter password to edit schedule:</label>
-      <input type="password" id="passwordInput" />
+      <label for="adminPasswordInput">Enter password to enter admin mode:</label>
+      <input type="password" id="adminPasswordInput" />
       <div class="password-modal-actions">
-        <button type="button" id="passwordCancelBtn">Cancel</button>
-        <button type="button" id="passwordOkBtn">OK</button>
+        <button type="button" id="adminPasswordCancelBtn">Cancel</button>
+        <button type="button" id="adminPasswordOkBtn">OK</button>
       </div>
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
