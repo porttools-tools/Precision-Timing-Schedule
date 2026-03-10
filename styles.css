@@ -91,28 +91,43 @@ body {
 }
 
 .btn-filter {
-  padding: 6px 10px;
-  font-size: 0.85rem;
+  padding: 4px 6px;
+  font-size: 0.8rem;
   border: 1px solid var(--text-on-dark);
   background: transparent;
   color: var(--text-on-dark);
   border-radius: 4px;
   cursor: pointer;
-  min-width: 44px;
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 400;
 }
 
 .btn-filter:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.btn-filter.active {
-  background: rgba(255, 255, 255, 0.25);
-  font-weight: 600;
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .btn-filter.hidden {
   display: none;
+}
+
+.filter-option {
+  padding: 2px 6px;
+  border-radius: 2px;
+  transition: all 0.15s ease;
+  font-weight: 400;
+}
+
+.filter-option.active {
+  background: rgba(255, 255, 255, 0.3);
+  font-weight: 600;
+}
+
+.filter-divider {
+  opacity: 0.5;
+  font-weight: 300;
+  user-select: none;
 }
 
 .app-bar .btn-admin {

@@ -314,13 +314,7 @@
   // --- Landing ---
   function updateFilterButton() {
     if (!filterBtn) return;
-    if (filterMode === 'favorites') {
-      filterBtn.textContent = 'All';
-      filterBtn.classList.add('active');
-    } else {
-      filterBtn.textContent = '★';
-      filterBtn.classList.remove('active');
-    }
+    filterBtn.innerHTML = '<span class="filter-option' + (filterMode === 'favorites' ? ' active' : '') + '">Fav</span><span class="filter-divider">|</span><span class="filter-option' + (filterMode === 'all' ? ' active' : '') + '">All</span>';
   }
 
   function renderLanding() {
