@@ -90,6 +90,31 @@ body {
   display: none;
 }
 
+.btn-filter {
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  border: 1px solid var(--text-on-dark);
+  background: transparent;
+  color: var(--text-on-dark);
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 44px;
+  font-weight: 500;
+}
+
+.btn-filter:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.btn-filter.active {
+  background: rgba(255, 255, 255, 0.25);
+  font-weight: 600;
+}
+
+.btn-filter.hidden {
+  display: none;
+}
+
 .app-bar .btn-admin {
   border-color: var(--text-on-dark);
   color: var(--text-on-dark);
@@ -121,6 +146,31 @@ body {
   gap: 12px;
   flex-wrap: wrap;
   cursor: pointer;
+  position: relative;
+}
+
+.schedule-card.favorited {
+  background: rgba(183, 28, 28, 0.03);
+  border-color: var(--header-red);
+}
+
+.schedule-star {
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  color: #FFB300;
+  transition: transform 0.1s ease;
+  padding: 4px;
+  margin: -4px;
+}
+
+.schedule-star:hover {
+  transform: scale(1.15);
+}
+
+.schedule-star:active {
+  transform: scale(0.95);
 }
 
 .schedule-card-name {
@@ -128,6 +178,7 @@ body {
   font-size: 1rem;
   flex: 1;
   min-width: 0;
+  cursor: pointer;
 }
 
 .btn-new-schedule {

@@ -64,6 +64,7 @@
   var anchorIndex = null;
   var isApplying = false;
   var isAdminMode = false;
+  var filterMode = 'all'; // 'all' or 'favorites'
 
   // --- DOM ---
   var landingScreen = document.getElementById('landingScreen');
@@ -92,6 +93,57 @@
   var adminPasswordCancelBtn = document.getElementById('adminPasswordCancelBtn');
   var adminPasswordOkBtn = document.getElementById('adminPasswordOkBtn');
   var focusSink = document.getElementById('focusSink');
+  var filterBtn = document.getElementById('filterBtn');
+
+  // --- LocalStorage for Favorites ---
+  function getFavorites() {
+    try {
+      var stored = localStorage.getItem('pts_favorites');
+      return stored ? JSON.parse(stored) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveFavorites(favorites) {
+    try {
+      localStorage.setItem('pts_favorites', JSON.stringify(favorites));
+    } catch (e) {
+      console.error('Could not save favorites', e);
+    }
+  }
+
+  function toggleFavorite(scheduleId) {
+    var favorites = getFavorites();
+    var index = favorites.indexOf(scheduleId);
+    if (index >= 0) {
+      favorites.splice(index, 1);
+    } else {
+      favorites.push(scheduleId);
+    }
+    saveFavorites(favorites);
+  }
+
+  function isFavorite(scheduleId) {
+    return getFavorites().indexOf(scheduleId) >= 0;
+  }
+
+  function getFilterMode() {
+    try {
+      var stored = localStorage.getItem('pts_filter_mode');
+      return stored === 'favorites' ? 'favorites' : 'all';
+    } catch (e) {
+      return 'all';
+    }
+  }
+
+  function saveFilterMode(mode) {
+    try {
+      localStorage.setItem('pts_filter_mode', mode);
+    } catch (e) {
+      console.error('Could not save filter mode', e);
+    }
+  }
 
   // --- Admin UI ---
   function updateAdminUI() {
@@ -224,6 +276,7 @@
     newScheduleScreen.classList.add('hidden');
     scheduleNameEl.classList.add('hidden');
     backToSchedulesBtn.classList.add('hidden');
+    if (filterBtn) filterBtn.classList.remove('hidden');
     adminBtn.classList.remove('hidden');
     updateAdminUI();
   }
@@ -259,7 +312,22 @@
   }
 
   // --- Landing ---
+  function updateFilterButton() {
+    if (!filterBtn) return;
+    if (filterMode === 'favorites') {
+      filterBtn.textContent = 'All';
+      filterBtn.classList.add('active');
+    } else {
+      filterBtn.textContent = '★';
+      filterBtn.classList.remove('active');
+    }
+  }
+
   function renderLanding() {
+    // Load filter mode from localStorage
+    filterMode = getFilterMode();
+    updateFilterButton();
+    
     scheduleListEl.innerHTML = '';
     scheduleListEl.appendChild(document.createTextNode('Loading…'));
     loadScheduleList().then(function (list) {
@@ -271,14 +339,54 @@
         scheduleListEl.appendChild(empty);
         return;
       }
-      list.forEach(function (a) {
+
+      var favorites = getFavorites();
+      
+      // Sort: favorites first, then alphabetically
+      var sortedList = list.slice().sort(function (a, b) {
+        var aIsFav = favorites.indexOf(a.id) >= 0;
+        var bIsFav = favorites.indexOf(b.id) >= 0;
+        if (aIsFav && !bIsFav) return -1;
+        if (!aIsFav && bIsFav) return 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      // Filter based on mode
+      var filteredList = filterMode === 'favorites'
+        ? sortedList.filter(function (a) { return favorites.indexOf(a.id) >= 0; })
+        : sortedList;
+
+      if (filteredList.length === 0) {
+        var empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = 'No favorites yet. Tap the star on a schedule to add it here.';
+        scheduleListEl.appendChild(empty);
+        return;
+      }
+
+      filteredList.forEach(function (a) {
+        var isFav = favorites.indexOf(a.id) >= 0;
         var card = document.createElement('div');
-        card.className = 'schedule-card';
-        card.innerHTML =
-          '<span class="schedule-card-name">' + escapeHtml(a.name) + '</span>';
-        card.addEventListener('click', function () {
+        card.className = 'schedule-card' + (isFav ? ' favorited' : '');
+        
+        var star = document.createElement('span');
+        star.className = 'schedule-star';
+        star.textContent = isFav ? '★' : '☆';
+        star.addEventListener('click', function (e) {
+          e.stopPropagation();
+          toggleFavorite(a.id);
+          renderLanding();
+        });
+
+        var nameSpan = document.createElement('span');
+        nameSpan.className = 'schedule-card-name';
+        nameSpan.textContent = a.name;
+        nameSpan.addEventListener('click', function () {
           openSchedule(a.id, a.name);
         });
+
+        card.appendChild(star);
+        card.appendChild(nameSpan);
         scheduleListEl.appendChild(card);
       });
     });
@@ -687,6 +795,15 @@
     showNewScheduleEditor();
     renderNewScheduleEditor();
   });
+
+  // --- Filter button ---
+  if (filterBtn) {
+    filterBtn.addEventListener('click', function () {
+      filterMode = filterMode === 'all' ? 'favorites' : 'all';
+      saveFilterMode(filterMode);
+      renderLanding();
+    });
+  }
 
   // --- Init: show landing ---
   updateAdminUI();
