@@ -91,6 +91,7 @@
   var adminPasswordInput = document.getElementById('adminPasswordInput');
   var adminPasswordCancelBtn = document.getElementById('adminPasswordCancelBtn');
   var adminPasswordOkBtn = document.getElementById('adminPasswordOkBtn');
+  var focusSink = document.getElementById('focusSink');
 
   // --- Admin UI ---
   function updateAdminUI() {
@@ -352,6 +353,7 @@
           e.preventDefault();
           commitTime(index, input);
           input.blur();
+          if (focusSink) focusSink.focus();
         }
       });
       input.addEventListener('change', function () {
@@ -405,6 +407,7 @@
           if (e.key === 'Enter') {
             e.preventDefault();
             input.blur();
+            if (focusSink) focusSink.focus();
           }
         });
       });
@@ -424,6 +427,7 @@
           if (e.key === 'Enter') {
             e.preventDefault();
             input.blur();
+            if (focusSink) focusSink.focus();
           }
         });
       });
@@ -549,6 +553,7 @@
         if (e.key === 'Enter') {
           e.preventDefault();
           input.blur();
+          if (focusSink) focusSink.focus();
         }
       });
     });
@@ -563,6 +568,7 @@
         if (e.key === 'Enter') {
           e.preventDefault();
           input.blur();
+          if (focusSink) focusSink.focus();
         }
       });
     });
