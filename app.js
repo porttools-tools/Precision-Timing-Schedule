@@ -365,7 +365,7 @@
 
   function updateGroupButton() {
     if (!groupBtn) return;
-    groupBtn.innerHTML = '<span class="group-option' + (groupMode === 'grouped' ? ' active' : '') + '">Grouped</span><span class="group-divider">|</span><span class="group-option' + (groupMode === 'ungrouped' ? ' active' : '') + '">Ungrouped</span>';
+    groupBtn.innerHTML = '<span class="group-option' + (groupMode === 'grouped' ? ' active' : '') + '">⊟</span><span class="group-divider">|</span><span class="group-option' + (groupMode === 'ungrouped' ? ' active' : '') + '">☰</span>';
   }
 
   function renderLanding() {
