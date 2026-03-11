@@ -1,0 +1,18 @@
+# Memory Bank Integration Rules
+CRITICAL: Before ANY task, you must check the `memory-bank/` folder to understand the project state.
+
+## Core Directives
+1. ALWAYS review `activeContext.md` at the start of a session to see current tasks and blockers.
+2. ALWAYS review `projectContext.md` for technical stack and architecture standards.
+3. After EVERY significant change or at the end of a task, UPDATE the memory bank files to reflect the new state.
+
+## Memory Bank Structure
+- `projectContext.md`: Tech stack, architecture, and overall goals.
+- `activeContext.md`: What we are working on RIGHT NOW and what's next.
+- `progress.md`: Completed milestones and pending features.
+- `decisionLog.md`: Why we made certain technical choices (e.g., "Used SQLite for local speed").
+
+## Coding Standards
+- Use functional programming patterns; avoid unnecessary classes.
+- Prioritize clear, descriptive variable names (e.g., `isLoading` instead of `loading`).
+- No "guessing" — if you aren't sure about a file's content, read it before editing.

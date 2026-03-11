@@ -313,7 +313,6 @@
     scheduleNameEl.classList.add('hidden');
     backToSchedulesBtn.classList.add('hidden');
     if (filterBtn) filterBtn.classList.remove('hidden');
-    if (groupBtn) groupBtn.classList.add('hidden');
     adminBtn.classList.remove('hidden');
     updateAdminUI();
   }
@@ -328,10 +327,6 @@
     scheduleNameEl.classList.remove('hidden');
     backToSchedulesBtn.classList.remove('hidden');
     if (filterBtn) filterBtn.classList.add('hidden');
-    if (groupBtn) {
-      groupBtn.classList.remove('hidden');
-      updateGroupButton();
-    }
     adminBtn.classList.add('hidden');
     updateAdminUI();
   }
@@ -345,7 +340,6 @@
     scheduleNameEl.classList.add('hidden');
     backToSchedulesBtn.classList.add('hidden');
     if (filterBtn) filterBtn.classList.add('hidden');
-    if (groupBtn) groupBtn.classList.add('hidden');
     adminBtn.classList.add('hidden');
   }
 
@@ -354,18 +348,12 @@
     mainScreen.classList.add('hidden');
     editScreen.classList.remove('hidden');
     if (filterBtn) filterBtn.classList.add('hidden');
-    if (groupBtn) groupBtn.classList.add('hidden');
   }
 
   // --- Landing ---
   function updateFilterButton() {
     if (!filterBtn) return;
     filterBtn.innerHTML = '<span class="filter-option' + (filterMode === 'favorites' ? ' active' : '') + '">Fav</span><span class="filter-divider">|</span><span class="filter-option' + (filterMode === 'all' ? ' active' : '') + '">All</span>';
-  }
-
-  function updateGroupButton() {
-    if (!groupBtn) return;
-    groupBtn.innerHTML = '<span class="group-option' + (groupMode === 'grouped' ? ' active' : '') + '">Grouped</span><span class="group-divider">|</span><span class="group-option' + (groupMode === 'ungrouped' ? ' active' : '') + '">Ungrouped</span>';
   }
 
   function renderLanding() {
@@ -440,8 +428,6 @@
   function openSchedule(id, name) {
     currentScheduleId = id;
     currentScheduleName = name;
-    // Load group mode from localStorage
-    groupMode = getGroupMode();
     phaseListEl.innerHTML = '';
     phaseListEl.appendChild(document.createTextNode('Loading…'));
     loadKeyTimes(id).then(function (list) {
@@ -461,26 +447,13 @@
   function applyScheduleFromAnchor(anchorMinutes) {
     if (anchorIndex == null) return;
     var anchorOffset = keyTimes[anchorIndex].offsetMinutes;
+    var inputs = phaseListEl.querySelectorAll('.timeline-input');
     isApplying = true;
-    
-    if (groupMode === 'grouped') {
-      // In grouped mode, update inputs by offset
-      phaseListEl.querySelectorAll('.timeline-input').forEach(function (input) {
-        var offset = parseInt(input.getAttribute('data-offset'), 10);
-        var diff = offset - anchorOffset;
-        var minutes = anchorMinutes + diff;
-        input.value = formatTime(minutes);
-      });
-    } else {
-      // In ungrouped mode, update inputs by index
-      var inputs = phaseListEl.querySelectorAll('.timeline-input');
-      for (var i = 0; i < keyTimes.length; i++) {
-        var diff = keyTimes[i].offsetMinutes - anchorOffset;
-        var minutes = anchorMinutes + diff;
-        if (inputs[i]) inputs[i].value = formatTime(minutes);
-      }
+    for (var i = 0; i < keyTimes.length; i++) {
+      var diff = keyTimes[i].offsetMinutes - anchorOffset;
+      var minutes = anchorMinutes + diff;
+      inputs[i].value = formatTime(minutes);
     }
-    
     isApplying = false;
   }
 
@@ -501,172 +474,77 @@
 
   function renderMainScreen() {
     phaseListEl.innerHTML = '';
-
-    if (groupMode === 'grouped') {
-      // --- GROUPED VIEW: Group tasks by offsetMinutes ---
-      var groups = {};
-      keyTimes.forEach(function (kt, index) {
-        var offset = kt.offsetMinutes;
-        if (!groups[offset]) {
-          groups[offset] = [];
+    keyTimes.forEach(function (kt, index) {
+      var row = document.createElement('div');
+      row.className = 'timeline-row' + (index === anchorIndex ? ' anchor' : '') + (kt.isKeyTime ? ' key-time-highlight' : '');
+      var offsetLabel = kt.offsetMinutes <= 0 ? String(kt.offsetMinutes) : '+' + kt.offsetMinutes;
+      
+      // Check if this task has any enhanced data
+      var hasDetails = kt.department || kt.durationMinutes || kt.category || kt.notes || kt.isConditional;
+      
+      var taskNameHtml = escapeHtml(kt.name);
+      if (kt.isConditional) taskNameHtml += ' <span class="conditional-indicator">*</span>';
+      
+      var detailsHtml = '';
+      if (hasDetails) {
+        detailsHtml = '<button type="button" class="btn-expand-view" data-index="' + index + '" title="Show details">▼</button>' +
+          '<div class="view-details hidden" data-index="' + index + '">';
+        
+        if (kt.department) {
+          detailsHtml += '<div class="detail-row"><span class="detail-label">Department:</span> ' + escapeHtml(kt.department) + '</div>';
         }
-        groups[offset].push({ task: kt, originalIndex: index });
-      });
-
-      var sortedOffsets = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
-      
-      sortedOffsets.forEach(function (offset) {
-        var group = groups[offset];
-        var offsetLabel = offset <= 0 ? String(offset) : '+' + offset;
-        
-        // Determine if whole group should be highlighted (only if ALL tasks are key times)
-        var allKeyTimes = group.every(function (item) { return item.task.isKeyTime; });
-        
-        // Find if any task in this group is the current anchor
-        var isAnchorGroup = group.some(function (item) { return item.originalIndex === anchorIndex; });
-        
-        // Build the row
-        var row = document.createElement('div');
-        row.className = 'timeline-row grouped-row' + (isAnchorGroup ? ' anchor' : '') + (allKeyTimes ? ' key-time-highlight' : '');
-        row.setAttribute('data-offset', offset);
-        
-        // Build tasks list
-        var tasksHtml = '';
-        group.forEach(function (item) {
-          var taskNameHtml = escapeHtml(item.task.name);
-          if (item.task.isConditional) taskNameHtml += ' <span class="conditional-indicator">*</span>';
-          var taskClass = item.task.isKeyTime ? ' class="grouped-task-item key-time-task"' : ' class="grouped-task-item"';
-          tasksHtml += '<div' + taskClass + '>' + taskNameHtml + '</div>';
-        });
-        
-        row.innerHTML =
-          '<div class="timeline-offset">' + offsetLabel + '</div>' +
-          '<div class="timeline-content">' +
-            '<div class="grouped-tasks-wrapper">' + tasksHtml + '</div>' +
-            '<div class="grouped-time-input-wrapper"><input type="text" class="timeline-input" placeholder="HHMM" data-offset="' + offset + '" /></div>' +
-          '</div>';
-        
-        var input = row.querySelector('.timeline-input');
-        input.addEventListener('focus', function () {
-          input.select();
-        });
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            var value = input.value.trim();
-            if (!value) return;
-            var minutes = parseTime(value);
-            if (minutes == null) return;
-            
-            // Set anchor to first task in this group
-            anchorIndex = group[0].originalIndex;
-            anchorOffsetMinutes = offset;
-            
-            // Update anchor styling
-            phaseListEl.querySelectorAll('.timeline-row').forEach(function (r) {
-              var rowOffset = parseInt(r.getAttribute('data-offset'), 10);
-              r.classList.toggle('anchor', rowOffset === offset);
-            });
-            
-            applyScheduleFromAnchor(minutes);
-            input.value = formatTime(minutes);
-            input.blur();
-            if (focusSink) focusSink.focus();
-          }
-        });
-        input.addEventListener('change', function () {
-          var value = input.value.trim();
-          if (!value) return;
-          var minutes = parseTime(value);
-          if (minutes == null) return;
-          
-          anchorIndex = group[0].originalIndex;
-          anchorOffsetMinutes = offset;
-          
-          phaseListEl.querySelectorAll('.timeline-row').forEach(function (r) {
-            var rowOffset = parseInt(r.getAttribute('data-offset'), 10);
-            r.classList.toggle('anchor', rowOffset === offset);
-          });
-          
-          applyScheduleFromAnchor(minutes);
-          input.value = formatTime(minutes);
-        });
-        
-        phaseListEl.appendChild(row);
-      });
-      
-    } else {
-      // --- UNGROUPED VIEW: Individual rows (original behavior) ---
-      keyTimes.forEach(function (kt, index) {
-        var row = document.createElement('div');
-        row.className = 'timeline-row' + (index === anchorIndex ? ' anchor' : '') + (kt.isKeyTime ? ' key-time-highlight' : '');
-        var offsetLabel = kt.offsetMinutes <= 0 ? String(kt.offsetMinutes) : '+' + kt.offsetMinutes;
-        
-        var hasDetails = kt.department || kt.durationMinutes || kt.category || kt.notes || kt.isConditional;
-        
-        var taskNameHtml = escapeHtml(kt.name);
-        if (kt.isConditional) taskNameHtml += ' <span class="conditional-indicator">*</span>';
-        
-        var detailsHtml = '';
-        if (hasDetails) {
-          detailsHtml = '<button type="button" class="btn-expand-view" data-index="' + index + '" title="Show details">▼</button>' +
-            '<div class="view-details hidden" data-index="' + index + '">';
-          
-          if (kt.department) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Department:</span> ' + escapeHtml(kt.department) + '</div>';
-          }
-          if (kt.durationMinutes) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Duration:</span> ' + kt.durationMinutes + ' minutes</div>';
-          }
-          if (kt.category) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Category:</span> ' + escapeHtml(kt.category) + '</div>';
-          }
-          if (kt.notes) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Notes:</span> ' + escapeHtml(kt.notes) + '</div>';
-          }
-          
-          detailsHtml += '</div>';
+        if (kt.durationMinutes) {
+          detailsHtml += '<div class="detail-row"><span class="detail-label">Duration:</span> ' + kt.durationMinutes + ' minutes</div>';
+        }
+        if (kt.category) {
+          detailsHtml += '<div class="detail-row"><span class="detail-label">Category:</span> ' + escapeHtml(kt.category) + '</div>';
+        }
+        if (kt.notes) {
+          detailsHtml += '<div class="detail-row"><span class="detail-label">Notes:</span> ' + escapeHtml(kt.notes) + '</div>';
         }
         
-        row.innerHTML =
-          '<div class="timeline-offset">' + offsetLabel + '</div>' +
-          '<div class="timeline-content">' +
-            '<span class="timeline-label">' + taskNameHtml + '</span>' +
-            '<input type="text" class="timeline-input" placeholder="HHMM" data-index="' + index + '" />' +
-            detailsHtml +
-          '</div>';
-        
-        var input = row.querySelector('.timeline-input');
-        input.addEventListener('focus', function () {
-          input.select();
-        });
-        input.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            commitTime(index, input);
-            input.blur();
-            if (focusSink) focusSink.focus();
-          }
-        });
-        input.addEventListener('change', function () {
+        detailsHtml += '</div>';
+      }
+      
+      row.innerHTML =
+        '<div class="timeline-offset">' + offsetLabel + '</div>' +
+        '<div class="timeline-content">' +
+          '<span class="timeline-label">' + taskNameHtml + '</span>' +
+          '<input type="text" class="timeline-input" placeholder="HHMM" data-index="' + index + '" />' +
+          detailsHtml +
+        '</div>';
+      
+      var input = row.querySelector('.timeline-input');
+      input.addEventListener('focus', function () {
+        input.select();
+      });
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
           commitTime(index, input);
-        });
-        
-        var expandBtn = row.querySelector('.btn-expand-view');
-        if (expandBtn) {
-          expandBtn.addEventListener('click', function () {
-            var i = parseInt(this.getAttribute('data-index'), 10);
-            var details = phaseListEl.querySelector('.view-details[data-index="' + i + '"]');
-            if (details) {
-              details.classList.toggle('hidden');
-              this.textContent = details.classList.contains('hidden') ? '▼' : '▲';
-            }
-          });
+          input.blur();
+          if (focusSink) focusSink.focus();
         }
-
-        phaseListEl.appendChild(row);
       });
-    }
+      input.addEventListener('change', function () {
+        commitTime(index, input);
+      });
+      
+      // Add expand button handler if details exist
+      var expandBtn = row.querySelector('.btn-expand-view');
+      if (expandBtn) {
+        expandBtn.addEventListener('click', function () {
+          var i = parseInt(this.getAttribute('data-index'), 10);
+          var details = phaseListEl.querySelector('.view-details[data-index="' + i + '"]');
+          if (details) {
+            details.classList.toggle('hidden');
+            this.textContent = details.classList.contains('hidden') ? '▼' : '▲';
+          }
+        });
+      }
+
+      phaseListEl.appendChild(row);
+    });
   }
 
   // --- Edit schedule (times) ---
@@ -1082,45 +960,9 @@
     });
   }
 
-  // --- Group button ---
-  if (groupBtn) {
-    groupBtn.addEventListener('click', function () {
-      // Save current anchor time before switching modes
-      var anchorTime = null;
-      if (anchorIndex != null) {
-        var inputs = phaseListEl.querySelectorAll('.timeline-input');
-        if (groupMode === 'grouped') {
-          // In grouped mode, find the input with matching offset
-          var anchorOffset = keyTimes[anchorIndex].offsetMinutes;
-          inputs.forEach(function (input) {
-            var offset = parseInt(input.getAttribute('data-offset'), 10);
-            if (offset === anchorOffset && input.value) {
-              anchorTime = parseTime(input.value);
-            }
-          });
-        } else {
-          // In ungrouped mode, use the anchor index directly
-          if (inputs[anchorIndex] && inputs[anchorIndex].value) {
-            anchorTime = parseTime(inputs[anchorIndex].value);
-          }
-        }
-      }
-      
-      // Switch modes
-      groupMode = groupMode === 'grouped' ? 'ungrouped' : 'grouped';
-      saveGroupMode(groupMode);
-      updateGroupButton();
-      renderMainScreen();
-      
-      // Re-apply the anchor time if it was set
-      if (anchorTime != null && anchorIndex != null) {
-        applyScheduleFromAnchor(anchorTime);
-      }
-    });
-  }
-
   // --- Init: show landing ---
   updateAdminUI();
   showLanding();
   renderLanding();
 })();
+
