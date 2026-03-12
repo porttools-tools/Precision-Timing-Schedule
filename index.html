@@ -25,7 +25,11 @@
 </head>
 <body class="on-landing">
   <header class="app-bar">
-    <button type="button" class="btn-back hidden" id="backToSchedulesBtn">Back</button>
+    <div class="app-bar-left">
+      <button type="button" class="btn-filter hidden" id="filterBtn" title="Toggle favorites filter">All</button>
+      <button type="button" class="btn-back hidden" id="backToSchedulesBtn">Back</button>
+      <button type="button" class="btn-group hidden" id="groupBtn" title="Toggle grouped/ungrouped view">Grouped</button>
+    </div>
     <div class="app-bar-title-wrap">
       <h1 class="app-bar-title">Precision Timing Schedule</h1>
     </div>
@@ -83,6 +87,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Hidden focus sink to prevent auto-tab to next input on mobile -->
+  <div id="focusSink" tabindex="-1" style="position: fixed; top: -100px; left: -100px; width: 1px; height: 1px; opacity: 0;"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <script src="app.js"></script>
