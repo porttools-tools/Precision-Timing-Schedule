@@ -638,6 +638,114 @@ main {
   font-size: 1.1em;
 }
 
+/* Conditional task styling - light amber background */
+.timeline-row.conditional-task .timeline-content {
+  background: rgba(255, 249, 196, 0.4);
+}
+
+.grouped-task-item.conditional-task {
+  background: rgba(255, 249, 196, 0.4);
+  padding: 3px 6px;
+  margin: -1px -6px;
+  border-radius: 2px;
+}
+
+/* Notes indicator icon */
+.notes-indicator {
+  color: #757575;
+  font-size: 0.85em;
+  margin-left: 4px;
+  opacity: 0.8;
+}
+
+/* Schedule notes box (main view) */
+.schedule-notes-box {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.03);
+  border-left: 3px solid var(--timeline-grey);
+  border-radius: 4px;
+}
+
+.schedule-notes-label {
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--timeline-grey);
+  margin-bottom: 6px;
+}
+
+.schedule-notes-content {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+/* Schedule notes edit (edit view) */
+/* Schedule name edit in edit screen */
+.schedule-name-edit {
+  width: 100%;
+  padding: 12px;
+  margin-bottom: 12px;
+  background: #f5f5f5;
+  border-radius: 4px;
+  border-left: 3px solid var(--header-red);
+}
+
+.schedule-name-edit-label {
+  display: block;
+  font-size: 0.9rem;
+  color: #666;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.schedule-name-edit-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.schedule-name-edit-input:focus {
+  outline: none;
+  border-color: var(--header-red);
+  box-shadow: 0 0 0 2px rgba(183, 28, 28, 0.1);
+}
+
+.schedule-notes-edit {
+  width: 100%;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border-light);
+}
+
+.schedule-notes-edit-label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--timeline-grey);
+}
+
+.schedule-notes-edit-textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.schedule-notes-edit-textarea:focus {
+  outline: none;
+  border-color: var(--header-red);
+}
+
 /* Grouped view styles */
 .timeline-row.grouped-row .timeline-content {
   flex-direction: row;

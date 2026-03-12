@@ -60,6 +60,7 @@
   // --- State ---
   var currentScheduleId = null;
   var currentScheduleName = '';
+  var currentScheduleNotes = '';
   var keyTimes = [];
   var anchorIndex = null;
   var anchorOffsetMinutes = null; // Track anchor by offset for grouped mode
@@ -249,6 +250,54 @@
       })
       .then(function (insertRes) {
         if (insertRes && insertRes.error) return Promise.reject(insertRes.error);
+        return Promise.resolve();
+      });
+  }
+
+  function loadScheduleMetadata(aircraftId) {
+    if (!supabase) return Promise.resolve(null);
+    return supabase
+      .from('schedule_metadata')
+      .select('general_notes')
+      .eq('aircraft_id', aircraftId)
+      .single()
+      .then(function (res) {
+        if (res.error) {
+          if (res.error.code === 'PGRST116') return null; // No metadata yet
+          console.error('loadScheduleMetadata', res.error);
+          return null;
+        }
+        return res.data ? (res.data.general_notes || '') : '';
+      });
+  }
+
+  function saveScheduleMetadata(aircraftId, generalNotes) {
+    if (!supabase) return Promise.reject(new Error('No Supabase'));
+    var notesTrim = (generalNotes || '').trim();
+    
+    // If notes empty, delete metadata row if it exists
+    if (!notesTrim) {
+      return supabase
+        .from('schedule_metadata')
+        .delete()
+        .eq('aircraft_id', aircraftId)
+        .then(function (res) {
+          if (res.error) console.error('Delete metadata', res.error);
+          return Promise.resolve();
+        });
+    }
+    
+    // Otherwise upsert (insert or update)
+    return supabase
+      .from('schedule_metadata')
+      .upsert({
+        aircraft_id: aircraftId,
+        general_notes: notesTrim
+      }, {
+        onConflict: 'aircraft_id'
+      })
+      .then(function (res) {
+        if (res.error) return Promise.reject(res.error);
         return Promise.resolve();
       });
   }
@@ -444,8 +493,14 @@
     groupMode = getGroupMode();
     phaseListEl.innerHTML = '';
     phaseListEl.appendChild(document.createTextNode('Loading…'));
-    loadKeyTimes(id).then(function (list) {
-      keyTimes = list;
+    
+    // Load both key times and metadata
+    Promise.all([
+      loadKeyTimes(id),
+      loadScheduleMetadata(id)
+    ]).then(function (results) {
+      keyTimes = results[0];
+      currentScheduleNotes = results[1] || '';
       anchorIndex = null;
       if (keyTimes.length === 0) {
         phaseListEl.innerHTML = '<p class="hint">No times for this schedule. Edit Schedule to add some.</p>';
@@ -534,8 +589,10 @@
         var tasksHtml = '';
         group.forEach(function (item) {
           var taskNameHtml = escapeHtml(item.task.name);
-          if (item.task.isConditional) taskNameHtml += ' <span class="conditional-indicator">*</span>';
-          var taskClass = item.task.isKeyTime ? ' class="grouped-task-item key-time-task"' : ' class="grouped-task-item"';
+          if (item.task.notes) taskNameHtml += ' <span class="notes-indicator">ⓘ</span>';
+          var taskClass = item.task.isKeyTime ? ' class="grouped-task-item key-time-task' : ' class="grouped-task-item';
+          if (item.task.isConditional) taskClass += ' conditional-task';
+          taskClass += '"';
           tasksHtml += '<div' + taskClass + '>' + taskNameHtml + '</div>';
         });
         
@@ -599,13 +656,15 @@
       // --- UNGROUPED VIEW: Individual rows (original behavior) ---
       keyTimes.forEach(function (kt, index) {
         var row = document.createElement('div');
-        row.className = 'timeline-row' + (index === anchorIndex ? ' anchor' : '') + (kt.isKeyTime ? ' key-time-highlight' : '');
+        var rowClasses = 'timeline-row' + (index === anchorIndex ? ' anchor' : '') + (kt.isKeyTime ? ' key-time-highlight' : '');
+        if (kt.isConditional) rowClasses += ' conditional-task';
+        row.className = rowClasses;
         var offsetLabel = kt.offsetMinutes <= 0 ? String(kt.offsetMinutes) : '+' + kt.offsetMinutes;
         
         var hasDetails = kt.department || kt.durationMinutes || kt.category || kt.notes || kt.isConditional;
         
         var taskNameHtml = escapeHtml(kt.name);
-        if (kt.isConditional) taskNameHtml += ' <span class="conditional-indicator">*</span>';
+        if (kt.notes) taskNameHtml += ' <span class="notes-indicator">ⓘ</span>';
         
         var detailsHtml = '';
         if (hasDetails) {
@@ -667,6 +726,14 @@
         phaseListEl.appendChild(row);
       });
     }
+    
+    // Add schedule notes at the bottom if they exist
+    if (currentScheduleNotes && currentScheduleNotes.trim()) {
+      var notesBox = document.createElement('div');
+      notesBox.className = 'schedule-notes-box';
+      notesBox.innerHTML = '<div class="schedule-notes-label">Schedule Notes:</div><div class="schedule-notes-content">' + escapeHtml(currentScheduleNotes).replace(/\n/g, '<br>') + '</div>';
+      phaseListEl.appendChild(notesBox);
+    }
   }
 
   // --- Edit schedule (times) ---
@@ -684,10 +751,42 @@
         category: p.category || ''
       };
     });
+    
+    var editScheduleName = currentScheduleName;
+    var editScheduleNotes = currentScheduleNotes;
 
     function renderEditList() {
       editing.sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
       editListEl.innerHTML = '';
+      
+      // Add schedule name input at the top
+      var nameRow = document.createElement('div');
+      nameRow.className = 'schedule-name-edit';
+      nameRow.innerHTML = 
+        '<label class="schedule-name-edit-label">Schedule Name:</label>' +
+        '<input type="text" class="schedule-name-edit-input" placeholder="e.g., Q400 Domestic - 25min Turn" value="' + 
+        escapeHtml(editScheduleName || '') + '" />';
+      editListEl.appendChild(nameRow);
+      
+      var scheduleNameInput = editListEl.querySelector('.schedule-name-edit-input');
+      scheduleNameInput.addEventListener('input', function () {
+        editScheduleName = this.value.trim();
+      });
+      
+      // Add schedule notes textarea
+      var notesRow = document.createElement('div');
+      notesRow.className = 'schedule-notes-edit';
+      notesRow.innerHTML = 
+        '<label class="schedule-notes-edit-label">Schedule Notes (general information):</label>' +
+        '<textarea class="schedule-notes-edit-textarea" placeholder="e.g., All times refer to the latest tasks can occur to ensure on-time departure..." rows="3">' + 
+        escapeHtml(editScheduleNotes || '') + '</textarea>';
+      editListEl.appendChild(notesRow);
+      
+      var notesTextarea = editListEl.querySelector('.schedule-notes-edit-textarea');
+      notesTextarea.addEventListener('input', function () {
+        editScheduleNotes = this.value;
+      });
+      
       editing.forEach(function (kt, index) {
         var row = document.createElement('div');
         row.className = 'timeline-row edit-row edit-key-time-row' + (kt.isKeyTime ? ' key-time-highlight' : '');
@@ -849,6 +948,11 @@
         alert('Keep at least one time.');
         return;
       }
+      if (!editScheduleName || !editScheduleName.trim()) {
+        alert('Schedule name is required.');
+        return;
+      }
+      
       var oldAnchorOffset = anchorIndex != null ? keyTimes[anchorIndex].offsetMinutes : null;
       keyTimes = editing.map(function (e) { 
         return { 
@@ -868,8 +972,22 @@
         var idx = keyTimes.findIndex(function (kt) { return kt.offsetMinutes === oldAnchorOffset; });
         anchorIndex = idx >= 0 ? idx : null;
       }
-      saveKeyTimes(currentScheduleId, keyTimes)
+      
+      // Update schedule name if it changed
+      var namePromise = editScheduleName !== currentScheduleName
+        ? supabase.from('aircraft').update({ name: editScheduleName }).eq('id', currentScheduleId)
+        : Promise.resolve();
+      
+      // Save schedule name, key times, and schedule notes
+      Promise.all([
+        namePromise,
+        saveKeyTimes(currentScheduleId, keyTimes),
+        saveScheduleMetadata(currentScheduleId, editScheduleNotes)
+      ])
         .then(function () {
+          currentScheduleName = editScheduleName;
+          currentScheduleNotes = editScheduleNotes;
+          scheduleNameEl.textContent = currentScheduleName; // Update header
           mainScreen.classList.remove('hidden');
           editScreen.classList.add('hidden');
           renderMainScreen();
