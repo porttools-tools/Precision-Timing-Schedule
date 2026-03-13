@@ -64,11 +64,11 @@
   var keyTimes = [];
   var anchorIndex = null;
   var anchorOffsetMinutes = null; // Track anchor by offset for grouped mode
+  var lastAnchorMinutes = null;   // Last committed anchor time (minutes) — persists across filter changes
   var isApplying = false;
   var isAdminMode = false;
   var filterMode = 'all'; // 'all' or 'favorites'
   var groupMode = 'grouped'; // 'grouped' or 'ungrouped'
-  var expandedGroupOffsets = {}; // Tracks which grouped rows are expanded (offset → true)
   var activeDepartments = {}; // { 'Engineering': true } — empty = show all
 
   // --- DOM ---
@@ -457,13 +457,6 @@
       chip.addEventListener('click', function () {
         var dept = this.getAttribute('data-dept');
 
-        // Save current time values before re-render
-        var savedTimes = {};
-        phaseListEl.querySelectorAll('.timeline-input').forEach(function (inp) {
-          var key = inp.getAttribute('data-offset') || inp.getAttribute('data-index');
-          if (key && inp.value) savedTimes[key] = inp.value;
-        });
-
         if (dept === '__all__') {
           activeDepartments = {};
         } else {
@@ -477,11 +470,10 @@
         renderDeptFilter();
         renderMainScreen();
 
-        // Restore time values after re-render
-        phaseListEl.querySelectorAll('.timeline-input').forEach(function (inp) {
-          var key = inp.getAttribute('data-offset') || inp.getAttribute('data-index');
-          if (key && savedTimes[key]) inp.value = savedTimes[key];
-        });
+        // Re-apply calculated times to all newly visible rows using stored anchor
+        if (anchorIndex != null && lastAnchorMinutes != null) {
+          applyScheduleFromAnchor(lastAnchorMinutes);
+        }
       });
     });
   }
@@ -560,8 +552,8 @@
     currentScheduleName = name;
     // Load group mode from localStorage
     groupMode = getGroupMode();
-    expandedGroupOffsets = {}; // Reset expanded groups when opening a new schedule
     activeDepartments = {}; // Reset dept filter for new schedule
+    lastAnchorMinutes = null; // Reset anchor time for new schedule
     phaseListEl.innerHTML = '';
     phaseListEl.appendChild(document.createTextNode('Loading…'));
     
@@ -629,6 +621,7 @@
       var rowIndex = idx ? parseInt(idx.getAttribute('data-index'), 10) : -1;
       row.classList.toggle('anchor', rowIndex === index);
     });
+    lastAnchorMinutes = minutes;
     applyScheduleFromAnchor(minutes);
     inputEl.value = formatTime(minutes);
   }
@@ -667,7 +660,6 @@
         var offsetLabel = offset <= 0 ? String(offset) : '+' + offset;
         var allKeyTimes = group.every(function (item) { return item.task.isKeyTime; });
         var isAnchorGroup = group.some(function (item) { return item.originalIndex === anchorIndex; });
-        var isExpanded = group.length > 1 && !!expandedGroupOffsets[offset];
 
         var row = document.createElement('div');
         row.className = 'timeline-row grouped-row' + (isAnchorGroup ? ' anchor' : '') + (allKeyTimes ? ' key-time-highlight' : '');
@@ -677,12 +669,12 @@
         // In both compact and expanded states, each task with notes is tappable.
         // Expanded state uses a different CSS class for more visual separation.
         var tasksHtml = '';
-        group.forEach(function (item, gIdx) {
+        visibleGroup.forEach(function (item, gIdx) {
           var taskId = 'g' + offset + '_' + gIdx;
           var taskNameHtml = escapeHtml(item.task.name);
           if (item.task.notes) taskNameHtml += ' <span class="notes-indicator">ⓘ</span>';
 
-          var itemClass = isExpanded ? 'grouped-task-expanded-item' : 'grouped-task-item';
+          var itemClass = 'grouped-task-item';
           if (item.task.isKeyTime) itemClass += ' key-time-task';
           if (item.task.isConditional) itemClass += ' conditional-task';
 
@@ -702,33 +694,6 @@
             '<div class="grouped-tasks-wrapper">' + tasksHtml + '</div>' +
             '<div class="grouped-time-input-wrapper"><input type="text" class="timeline-input" placeholder="HHMM" data-offset="' + offset + '" /></div>' +
           '</div>';
-
-        // Offset badge: tappable for multi-task groups — expands to individual sub-rows
-        if (group.length > 1) {
-          var offsetBadge = row.querySelector('.timeline-offset');
-          offsetBadge.style.cursor = 'pointer';
-          offsetBadge.addEventListener('click', function () {
-            // Save current time input values
-            var savedTimes = {};
-            phaseListEl.querySelectorAll('.timeline-input').forEach(function (inp) {
-              savedTimes[inp.getAttribute('data-offset')] = inp.value;
-            });
-
-            // Toggle expanded state and re-render
-            if (expandedGroupOffsets[offset]) {
-              delete expandedGroupOffsets[offset];
-            } else {
-              expandedGroupOffsets[offset] = true;
-            }
-            renderMainScreen();
-
-            // Restore time values after re-render
-            phaseListEl.querySelectorAll('.timeline-input').forEach(function (inp) {
-              var off = inp.getAttribute('data-offset');
-              if (savedTimes[off]) inp.value = savedTimes[off];
-            });
-          });
-        }
 
         // Task tap: show/hide inline note
         row.querySelectorAll('.grouped-task-tappable').forEach(function (taskEl) {
@@ -753,6 +718,7 @@
             phaseListEl.querySelectorAll('.timeline-row').forEach(function (r) {
               r.classList.toggle('anchor', parseInt(r.getAttribute('data-offset'), 10) === offset);
             });
+            lastAnchorMinutes = minutes;
             applyScheduleFromAnchor(minutes);
             input.value = formatTime(minutes);
             input.blur();
@@ -769,6 +735,7 @@
           phaseListEl.querySelectorAll('.timeline-row').forEach(function (r) {
             r.classList.toggle('anchor', parseInt(r.getAttribute('data-offset'), 10) === offset);
           });
+          lastAnchorMinutes = minutes;
           applyScheduleFromAnchor(minutes);
           input.value = formatTime(minutes);
         });

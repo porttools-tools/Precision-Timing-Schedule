@@ -801,32 +801,7 @@ main {
   border-color: var(--header-red);
 }
 
-/* -----------------------------------------------
-   Grouped view: offset badge is tappable (no indicator needed)
-   Multi-task groups can be expanded to individual sub-rows
------------------------------------------------ */
-
-/* Expanded task sub-row (when group is expanded) */
-.grouped-task-expanded-item {
-  font-size: 0.875rem;
-  line-height: 1.3;
-  padding: 5px 0;
-  border-top: 1px solid var(--border-light);
-}
-
-.grouped-task-expanded-item:first-child,
-.grouped-tasks-wrapper > .grouped-task-expanded-item:first-of-type {
-  border-top: none;
-  padding-top: 2px;
-}
-
-/* Inline note immediately after an expanded item shares the padding */
-.grouped-task-expanded-item + .grouped-inline-note {
-  margin-top: 0;
-  margin-bottom: 4px;
-}
-
-/* Tappable task items in grouped view (compact or expanded) */
+/* Tappable task items in grouped view */
 .grouped-task-tappable {
   cursor: pointer;
   text-decoration: underline dotted rgba(0, 0, 0, 0.25);
