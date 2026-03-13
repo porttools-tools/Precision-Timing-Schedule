@@ -358,6 +358,7 @@
   // --- Navigation ---
   function showLanding() {
     document.body.classList.add('on-landing');
+    window.scrollTo(0, 0);
     landingScreen.classList.remove('hidden');
     mainScreen.classList.add('hidden');
     editScreen.classList.add('hidden');
@@ -372,6 +373,7 @@
 
   function showPTS() {
     document.body.classList.remove('on-landing');
+    window.scrollTo(0, 0);
     landingScreen.classList.add('hidden');
     newScheduleScreen.classList.add('hidden');
     mainScreen.classList.remove('hidden');
