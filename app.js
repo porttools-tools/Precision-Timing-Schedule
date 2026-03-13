@@ -68,6 +68,8 @@
   var isAdminMode = false;
   var filterMode = 'all'; // 'all' or 'favorites'
   var groupMode = 'grouped'; // 'grouped' or 'ungrouped'
+  var expandedGroupOffsets = {}; // Tracks which grouped rows are expanded (offset → true)
+  var activeDepartments = {}; // { 'Engineering': true } — empty = show all
 
   // --- DOM ---
   var landingScreen = document.getElementById('landingScreen');
@@ -98,6 +100,7 @@
   var focusSink = document.getElementById('focusSink');
   var filterBtn = document.getElementById('filterBtn');
   var groupBtn = document.getElementById('groupBtn');
+  var deptFilterBar = document.getElementById('deptFilterBar');
 
   // --- LocalStorage for Favorites ---
   function getFavorites() {
@@ -417,6 +420,72 @@
     groupBtn.innerHTML = '<span class="group-option' + (groupMode === 'grouped' ? ' active' : '') + '">⊟</span><span class="group-divider">|</span><span class="group-option' + (groupMode === 'ungrouped' ? ' active' : '') + '">☰</span>';
   }
 
+  // --- Department Filter ---
+  function renderDeptFilter() {
+    if (!deptFilterBar) return;
+
+    // Collect unique, non-null departments from keyTimes
+    var deptSet = {};
+    keyTimes.forEach(function (kt) {
+      if (kt.department && kt.department.trim()) {
+        deptSet[kt.department.trim()] = true;
+      }
+    });
+    var depts = Object.keys(deptSet).sort();
+
+    // Hide filter bar if no department data
+    if (depts.length === 0) {
+      deptFilterBar.classList.add('hidden');
+      deptFilterBar.innerHTML = '';
+      return;
+    }
+
+    // Build chip bar
+    deptFilterBar.classList.remove('hidden');
+    var allActive = Object.keys(activeDepartments).length === 0;
+    var html = '<span class="dept-filter-label">Dept:</span><div class="dept-chips">';
+    html += '<button type="button" class="dept-chip' + (allActive ? ' active' : '') + '" data-dept="__all__">All</button>';
+    depts.forEach(function (dept) {
+      var isActive = !!activeDepartments[dept];
+      html += '<button type="button" class="dept-chip' + (isActive ? ' active' : '') + '" data-dept="' + escapeHtml(dept) + '">' + escapeHtml(dept) + '</button>';
+    });
+    html += '</div>';
+    deptFilterBar.innerHTML = html;
+
+    // Chip click handlers
+    deptFilterBar.querySelectorAll('.dept-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        var dept = this.getAttribute('data-dept');
+
+        // Save current time values before re-render
+        var savedTimes = {};
+        phaseListEl.querySelectorAll('.timeline-input').forEach(function (inp) {
+          var key = inp.getAttribute('data-offset') || inp.getAttribute('data-index');
+          if (key && inp.value) savedTimes[key] = inp.value;
+        });
+
+        if (dept === '__all__') {
+          activeDepartments = {};
+        } else {
+          if (activeDepartments[dept]) {
+            delete activeDepartments[dept];
+          } else {
+            activeDepartments[dept] = true;
+          }
+        }
+
+        renderDeptFilter();
+        renderMainScreen();
+
+        // Restore time values after re-render
+        phaseListEl.querySelectorAll('.timeline-input').forEach(function (inp) {
+          var key = inp.getAttribute('data-offset') || inp.getAttribute('data-index');
+          if (key && savedTimes[key]) inp.value = savedTimes[key];
+        });
+      });
+    });
+  }
+
   function renderLanding() {
     // Load filter mode from localStorage
     filterMode = getFilterMode();
@@ -491,6 +560,8 @@
     currentScheduleName = name;
     // Load group mode from localStorage
     groupMode = getGroupMode();
+    expandedGroupOffsets = {}; // Reset expanded groups when opening a new schedule
+    activeDepartments = {}; // Reset dept filter for new schedule
     phaseListEl.innerHTML = '';
     phaseListEl.appendChild(document.createTextNode('Loading…'));
     
@@ -505,9 +576,11 @@
       if (keyTimes.length === 0) {
         phaseListEl.innerHTML = '<p class="hint">No times for this schedule. Edit Schedule to add some.</p>';
         showPTS();
+        renderDeptFilter();
         return;
       }
       showPTS();
+      renderDeptFilter();
       renderMainScreen();
     });
   }
@@ -527,13 +600,16 @@
         input.value = formatTime(minutes);
       });
     } else {
-      // In ungrouped mode, update inputs by index
-      var inputs = phaseListEl.querySelectorAll('.timeline-input');
-      for (var i = 0; i < keyTimes.length; i++) {
-        var diff = keyTimes[i].offsetMinutes - anchorOffset;
-        var minutes = anchorMinutes + diff;
-        if (inputs[i]) inputs[i].value = formatTime(minutes);
-      }
+      // In ungrouped mode, look up each input by data-index attribute
+      // (some rows may be hidden by dept filter, so we can't use positional index)
+      phaseListEl.querySelectorAll('.timeline-input').forEach(function (input) {
+        var idx = parseInt(input.getAttribute('data-index'), 10);
+        if (!isNaN(idx) && keyTimes[idx]) {
+          var diff = keyTimes[idx].offsetMinutes - anchorOffset;
+          var minutes = anchorMinutes + diff;
+          input.value = formatTime(minutes);
+        }
+      });
     }
     
     isApplying = false;
@@ -547,8 +623,11 @@
     if (minutes == null) return;
 
     anchorIndex = index;
-    phaseListEl.querySelectorAll('.timeline-row').forEach(function (row, i) {
-      row.classList.toggle('anchor', i === index);
+    // Use data-index attribute to find the anchor row (supports filtered view)
+    phaseListEl.querySelectorAll('.timeline-row').forEach(function (row) {
+      var idx = row.querySelector('.timeline-input[data-index]');
+      var rowIndex = idx ? parseInt(idx.getAttribute('data-index'), 10) : -1;
+      row.classList.toggle('anchor', rowIndex === index);
     });
     applyScheduleFromAnchor(minutes);
     inputEl.value = formatTime(minutes);
@@ -557,97 +636,111 @@
   function renderMainScreen() {
     phaseListEl.innerHTML = '';
 
+    // Helper: does a task match the active dept filter?
+    var hasDeptFilter = Object.keys(activeDepartments).length > 0;
+    function taskPassesDeptFilter(kt) {
+      if (!hasDeptFilter) return true;
+      return kt.department && !!activeDepartments[kt.department.trim()];
+    }
+
     if (groupMode === 'grouped') {
       // --- GROUPED VIEW: Group tasks by offsetMinutes ---
       var groups = {};
       keyTimes.forEach(function (kt, index) {
         var offset = kt.offsetMinutes;
-        if (!groups[offset]) {
-          groups[offset] = [];
-        }
+        if (!groups[offset]) groups[offset] = [];
         groups[offset].push({ task: kt, originalIndex: index });
       });
 
       var sortedOffsets = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
-      
+
       sortedOffsets.forEach(function (offset) {
         var group = groups[offset];
+
+        // Apply dept filter: only include tasks that pass
+        var visibleGroup = hasDeptFilter
+          ? group.filter(function (item) { return taskPassesDeptFilter(item.task); })
+          : group;
+
+        // Skip this offset row entirely if no tasks are visible
+        if (visibleGroup.length === 0) return;
         var offsetLabel = offset <= 0 ? String(offset) : '+' + offset;
-        
-        // Determine if whole group should be highlighted (only if ALL tasks are key times)
         var allKeyTimes = group.every(function (item) { return item.task.isKeyTime; });
-        
-        // Find if any task in this group is the current anchor
         var isAnchorGroup = group.some(function (item) { return item.originalIndex === anchorIndex; });
-        
-        // Build the row
+        var isExpanded = group.length > 1 && !!expandedGroupOffsets[offset];
+
         var row = document.createElement('div');
         row.className = 'timeline-row grouped-row' + (isAnchorGroup ? ' anchor' : '') + (allKeyTimes ? ' key-time-highlight' : '');
         row.setAttribute('data-offset', offset);
-        
-        // Check if group has any expandable content
-        var groupHasDetails = group.some(function (item) {
-          return item.task.department || item.task.durationMinutes || item.task.notes || item.task.category;
-        });
 
-        // Build tasks list
+        // Build the task items for the tasks wrapper.
+        // In both compact and expanded states, each task with notes is tappable.
+        // Expanded state uses a different CSS class for more visual separation.
         var tasksHtml = '';
-        group.forEach(function (item) {
+        group.forEach(function (item, gIdx) {
+          var taskId = 'g' + offset + '_' + gIdx;
           var taskNameHtml = escapeHtml(item.task.name);
           if (item.task.notes) taskNameHtml += ' <span class="notes-indicator">ⓘ</span>';
-          var taskClass = item.task.isKeyTime ? ' class="grouped-task-item key-time-task' : ' class="grouped-task-item';
-          if (item.task.isConditional) taskClass += ' conditional-task';
-          taskClass += '"';
-          tasksHtml += '<div' + taskClass + '>' + taskNameHtml + '</div>';
-        });
 
-        // Build details panel (one section per task in the group that has details)
-        var detailsPanelHtml = '<div class="grouped-details-panel hidden">';
-        group.forEach(function (item) {
-          var hasItemDetails = item.task.department || item.task.durationMinutes || item.task.notes || item.task.category;
-          if (!hasItemDetails) return;
-          detailsPanelHtml += '<div class="grouped-detail-task">';
-          detailsPanelHtml += '<div class="grouped-detail-task-name">' + escapeHtml(item.task.name) + '</div>';
-          if (item.task.department) {
-            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Department:</span> ' + escapeHtml(item.task.department) + '</div>';
-          }
-          if (item.task.durationMinutes) {
-            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Duration:</span> ' + item.task.durationMinutes + ' minutes</div>';
-          }
-          if (item.task.category) {
-            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Category:</span> ' + escapeHtml(item.task.category) + '</div>';
-          }
+          var itemClass = isExpanded ? 'grouped-task-expanded-item' : 'grouped-task-item';
+          if (item.task.isKeyTime) itemClass += ' key-time-task';
+          if (item.task.isConditional) itemClass += ' conditional-task';
+
           if (item.task.notes) {
-            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Notes:</span> ' + escapeHtml(item.task.notes) + '</div>';
+            // Tappable task item + inline note panel (note text only, no name repetition)
+            tasksHtml +=
+              '<div class="' + itemClass + ' grouped-task-tappable" data-task-id="' + taskId + '" role="button" tabindex="0">' + taskNameHtml + '</div>' +
+              '<div class="inline-note hidden grouped-inline-note" data-task-id="' + taskId + '">' + escapeHtml(item.task.notes) + '</div>';
+          } else {
+            tasksHtml += '<div class="' + itemClass + '">' + taskNameHtml + '</div>';
           }
-          detailsPanelHtml += '</div>';
         });
-        detailsPanelHtml += '</div>';
 
         row.innerHTML =
-          '<div class="timeline-offset' + (groupHasDetails ? ' offset-expandable' : '') + '" data-offset="' + offset + '">' + offsetLabel + '</div>' +
+          '<div class="timeline-offset" data-offset="' + offset + '">' + offsetLabel + '</div>' +
           '<div class="timeline-content">' +
             '<div class="grouped-tasks-wrapper">' + tasksHtml + '</div>' +
             '<div class="grouped-time-input-wrapper"><input type="text" class="timeline-input" placeholder="HHMM" data-offset="' + offset + '" /></div>' +
-            detailsPanelHtml +
           '</div>';
 
-        // Offset badge expand/collapse
-        if (groupHasDetails) {
+        // Offset badge: tappable for multi-task groups — expands to individual sub-rows
+        if (group.length > 1) {
           var offsetBadge = row.querySelector('.timeline-offset');
           offsetBadge.style.cursor = 'pointer';
           offsetBadge.addEventListener('click', function () {
-            var panel = row.querySelector('.grouped-details-panel');
-            var isExpanded = !panel.classList.contains('hidden');
-            panel.classList.toggle('hidden');
-            offsetBadge.classList.toggle('offset-expanded', !isExpanded);
+            // Save current time input values
+            var savedTimes = {};
+            phaseListEl.querySelectorAll('.timeline-input').forEach(function (inp) {
+              savedTimes[inp.getAttribute('data-offset')] = inp.value;
+            });
+
+            // Toggle expanded state and re-render
+            if (expandedGroupOffsets[offset]) {
+              delete expandedGroupOffsets[offset];
+            } else {
+              expandedGroupOffsets[offset] = true;
+            }
+            renderMainScreen();
+
+            // Restore time values after re-render
+            phaseListEl.querySelectorAll('.timeline-input').forEach(function (inp) {
+              var off = inp.getAttribute('data-offset');
+              if (savedTimes[off]) inp.value = savedTimes[off];
+            });
           });
         }
-        
-        var input = row.querySelector('.timeline-input');
-        input.addEventListener('focus', function () {
-          input.select();
+
+        // Task tap: show/hide inline note
+        row.querySelectorAll('.grouped-task-tappable').forEach(function (taskEl) {
+          taskEl.addEventListener('click', function () {
+            var taskId = this.getAttribute('data-task-id');
+            var noteEl = row.querySelector('.grouped-inline-note[data-task-id="' + taskId + '"]');
+            if (noteEl) noteEl.classList.toggle('hidden');
+          });
         });
+
+        var input = row.querySelector('.timeline-input');
+        input.addEventListener('focus', function () { input.select(); });
         input.addEventListener('keydown', function (e) {
           if (e.key === 'Enter') {
             e.preventDefault();
@@ -655,17 +748,11 @@
             if (!value) return;
             var minutes = parseTime(value);
             if (minutes == null) return;
-            
-            // Set anchor to first task in this group
             anchorIndex = group[0].originalIndex;
             anchorOffsetMinutes = offset;
-            
-            // Update anchor styling
             phaseListEl.querySelectorAll('.timeline-row').forEach(function (r) {
-              var rowOffset = parseInt(r.getAttribute('data-offset'), 10);
-              r.classList.toggle('anchor', rowOffset === offset);
+              r.classList.toggle('anchor', parseInt(r.getAttribute('data-offset'), 10) === offset);
             });
-            
             applyScheduleFromAnchor(minutes);
             input.value = formatTime(minutes);
             input.blur();
@@ -677,25 +764,24 @@
           if (!value) return;
           var minutes = parseTime(value);
           if (minutes == null) return;
-          
           anchorIndex = group[0].originalIndex;
           anchorOffsetMinutes = offset;
-          
           phaseListEl.querySelectorAll('.timeline-row').forEach(function (r) {
-            var rowOffset = parseInt(r.getAttribute('data-offset'), 10);
-            r.classList.toggle('anchor', rowOffset === offset);
+            r.classList.toggle('anchor', parseInt(r.getAttribute('data-offset'), 10) === offset);
           });
-          
           applyScheduleFromAnchor(minutes);
           input.value = formatTime(minutes);
         });
-        
+
         phaseListEl.appendChild(row);
       });
       
     } else {
-      // --- UNGROUPED VIEW: Individual rows (original behavior) ---
+      // --- UNGROUPED VIEW: Individual rows ---
       keyTimes.forEach(function (kt, index) {
+        // Apply dept filter — skip this task if it doesn't match
+        if (!taskPassesDeptFilter(kt)) return;
+
         var row = document.createElement('div');
         var rowClasses = 'timeline-row' + (index === anchorIndex ? ' anchor' : '') + (kt.isKeyTime ? ' key-time-highlight' : '');
         if (kt.isConditional) rowClasses += ' conditional-task';
@@ -1054,6 +1140,8 @@
           scheduleNameEl.textContent = currentScheduleName; // Update header
           mainScreen.classList.remove('hidden');
           editScreen.classList.add('hidden');
+          activeDepartments = {}; // Reset dept filter after save (dept names may have changed)
+          renderDeptFilter();
           renderMainScreen();
           if (anchorIndex != null) {
             var inputs = phaseListEl.querySelectorAll('.timeline-input');
