@@ -70,6 +70,7 @@
   var filterMode = 'all'; // 'all' or 'favorites'
   var groupMode = 'grouped'; // 'grouped' or 'ungrouped'
   var activeDepartments = {}; // { 'Engineering': true } — empty = show all
+  var currentScheduleIsLive = false; // Live status of currently open schedule
 
   // --- DOM ---
   var landingScreen = document.getElementById('landingScreen');
@@ -175,6 +176,10 @@
     if (adminBtn) adminBtn.textContent = isAdminMode ? 'Exit Admin' : 'Admin';
     if (newScheduleBtn) newScheduleBtn.style.display = isAdminMode ? '' : 'none';
     if (editScheduleBtn) editScheduleBtn.style.display = isAdminMode ? '' : 'none';
+    // Re-render the landing list so draft schedules show/hide immediately on admin toggle
+    if (landingScreen && !landingScreen.classList.contains('hidden')) {
+      renderLanding();
+    }
   }
 
   // --- Supabase API (tables: aircraft, key_time) ---
@@ -182,7 +187,7 @@
     if (!supabase) return Promise.resolve([]);
     return supabase
       .from('aircraft')
-      .select('id, name')
+      .select('id, name, is_live')
       .order('name')
       .then(function (res) {
         if (res.error) {
@@ -427,10 +432,14 @@
     if (!deptFilterBar) return;
 
     // Collect unique, non-null departments from keyTimes
+    // Supports comma-separated departments (e.g., "Engineering, GSP")
     var deptSet = {};
     keyTimes.forEach(function (kt) {
       if (kt.department && kt.department.trim()) {
-        deptSet[kt.department.trim()] = true;
+        kt.department.split(',').forEach(function (d) {
+          var trimmed = d.trim();
+          if (trimmed) deptSet[trimmed] = true;
+        });
       }
     });
     var depts = Object.keys(deptSet).sort();
@@ -521,10 +530,27 @@
         return;
       }
 
-      filteredList.forEach(function (a) {
+      // In normal mode, hide draft (non-live) schedules
+      // In admin mode, show all schedules with DRAFT badge for non-live ones
+      var visibleList = isAdminMode
+        ? filteredList
+        : filteredList.filter(function (a) { return a.is_live === true; });
+
+      if (visibleList.length === 0) {
+        var noLive = document.createElement('p');
+        noLive.className = 'hint';
+        noLive.textContent = isAdminMode
+          ? 'No schedules yet. Create one with "New schedule".'
+          : 'No live schedules available.';
+        scheduleListEl.appendChild(noLive);
+        return;
+      }
+
+      visibleList.forEach(function (a) {
         var isFav = favorites.indexOf(a.id) >= 0;
+        var isDraft = !a.is_live;
         var card = document.createElement('div');
-        card.className = 'schedule-card' + (isFav ? ' favorited' : '');
+        card.className = 'schedule-card' + (isFav ? ' favorited' : '') + (isDraft ? ' draft-schedule' : '');
         
         var star = document.createElement('span');
         star.className = 'schedule-star';
@@ -539,19 +565,29 @@
         nameSpan.className = 'schedule-card-name';
         nameSpan.textContent = a.name;
         nameSpan.addEventListener('click', function () {
-          openSchedule(a.id, a.name);
+          openSchedule(a.id, a.name, a.is_live === true);
         });
 
         card.appendChild(star);
         card.appendChild(nameSpan);
+
+        // Show DRAFT badge in admin mode for non-live schedules
+        if (isDraft && isAdminMode) {
+          var draftBadge = document.createElement('span');
+          draftBadge.className = 'draft-badge';
+          draftBadge.textContent = 'DRAFT';
+          card.appendChild(draftBadge);
+        }
+
         scheduleListEl.appendChild(card);
       });
     });
   }
 
-  function openSchedule(id, name) {
+  function openSchedule(id, name, isLive) {
     currentScheduleId = id;
     currentScheduleName = name;
+    currentScheduleIsLive = isLive === true;
     // Load group mode from localStorage
     groupMode = getGroupMode();
     activeDepartments = {}; // Reset dept filter for new schedule
@@ -632,10 +668,14 @@
     phaseListEl.innerHTML = '';
 
     // Helper: does a task match the active dept filter?
+    // Supports comma-separated departments (e.g., "Engineering, GSP")
     var hasDeptFilter = Object.keys(activeDepartments).length > 0;
     function taskPassesDeptFilter(kt) {
       if (!hasDeptFilter) return true;
-      return kt.department && !!activeDepartments[kt.department.trim()];
+      if (!kt.department) return false;
+      return kt.department.split(',').some(function (d) {
+        return !!activeDepartments[d.trim()];
+      });
     }
 
     if (groupMode === 'grouped') {
@@ -872,6 +912,7 @@
     
     var editScheduleName = currentScheduleName;
     var editScheduleNotes = currentScheduleNotes;
+    var editIsLive = currentScheduleIsLive; // Track live status for this edit session
 
     function renderEditList() {
       editing.sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
@@ -903,6 +944,22 @@
       var notesTextarea = editListEl.querySelector('.schedule-notes-edit-textarea');
       notesTextarea.addEventListener('input', function () {
         editScheduleNotes = this.value;
+      });
+
+      // Live toggle row
+      var liveRow = document.createElement('div');
+      liveRow.className = 'schedule-live-edit';
+      liveRow.innerHTML =
+        '<span class="schedule-live-label">Visibility:</span>' +
+        '<button type="button" class="btn-live-toggle' + (editIsLive ? ' live' : ' draft') + '">' +
+          (editIsLive ? '🟢 Live — visible to all users' : '🔴 Draft — only visible in admin mode') +
+        '</button>';
+      editListEl.appendChild(liveRow);
+
+      var liveToggleBtn = liveRow.querySelector('.btn-live-toggle');
+      liveToggleBtn.addEventListener('click', function () {
+        editIsLive = !editIsLive;
+        renderEditList();
       });
       
       editing.forEach(function (kt, index) {
@@ -1092,10 +1149,10 @@
         anchorIndex = idx >= 0 ? idx : null;
       }
       
-      // Update schedule name if it changed
-      var namePromise = editScheduleName !== currentScheduleName
-        ? supabase.from('aircraft').update({ name: editScheduleName }).eq('id', currentScheduleId)
-        : Promise.resolve();
+      // Always update aircraft record (name and/or is_live may have changed)
+      var aircraftUpdate = { is_live: editIsLive };
+      if (editScheduleName !== currentScheduleName) aircraftUpdate.name = editScheduleName;
+      var namePromise = supabase.from('aircraft').update(aircraftUpdate).eq('id', currentScheduleId);
       
       // Save schedule name, key times, and schedule notes
       Promise.all([
@@ -1106,6 +1163,7 @@
         .then(function () {
           currentScheduleName = editScheduleName;
           currentScheduleNotes = editScheduleNotes;
+          currentScheduleIsLive = editIsLive;
           scheduleNameEl.textContent = currentScheduleName; // Update header
           mainScreen.classList.remove('hidden');
           editScreen.classList.add('hidden');
