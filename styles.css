@@ -746,6 +746,108 @@ main {
   border-color: var(--header-red);
 }
 
+/* -----------------------------------------------
+   Grouped view: expandable offset badge
+----------------------------------------------- */
+
+/* Visual cue: offset badge is tappable when group has details */
+.timeline-offset.offset-expandable {
+  position: relative;
+  user-select: none;
+}
+
+.timeline-offset.offset-expandable::after {
+  content: '▾';
+  display: block;
+  font-size: 0.6rem;
+  line-height: 1;
+  opacity: 0.6;
+  margin-top: 1px;
+}
+
+.timeline-offset.offset-expanded {
+  background: #5a5a5a;
+}
+
+.timeline-offset.offset-expanded::after {
+  content: '▴';
+  opacity: 1;
+}
+
+/* Grouped details panel (below the task list, revealed on badge tap) */
+.grouped-details-panel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 4px;
+  border-top: 1px solid var(--border-light);
+  font-size: 0.8rem;
+}
+
+.grouped-details-panel.hidden {
+  display: none;
+}
+
+.grouped-detail-task {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.grouped-detail-task + .grouped-detail-task {
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-light);
+}
+
+.grouped-detail-task-name {
+  font-weight: 600;
+  font-size: 0.82rem;
+  color: var(--timeline-grey);
+  margin-bottom: 2px;
+}
+
+/* -----------------------------------------------
+   Ungrouped view: clickable task label for notes
+----------------------------------------------- */
+
+/* Make note-label button look like normal text */
+button.timeline-label-note {
+  all: unset;
+  flex: 1;
+  font-size: 0.875rem;
+  line-height: 1.3;
+  min-width: 0;
+  cursor: pointer;
+  text-decoration: underline dotted rgba(0, 0, 0, 0.25);
+  text-underline-offset: 2px;
+}
+
+button.timeline-label-note:hover .notes-indicator,
+button.timeline-label-note:focus .notes-indicator {
+  opacity: 1;
+}
+
+/* Inline note panel (shown on tap of task label) */
+.inline-note {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border-left: 2px solid #9E9E9E;
+  border-radius: 2px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+.inline-note.hidden {
+  display: none;
+}
+
 /* Grouped view styles */
 .timeline-row.grouped-row .timeline-content {
   flex-direction: row;

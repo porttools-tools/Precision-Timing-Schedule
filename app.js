@@ -585,6 +585,11 @@
         row.className = 'timeline-row grouped-row' + (isAnchorGroup ? ' anchor' : '') + (allKeyTimes ? ' key-time-highlight' : '');
         row.setAttribute('data-offset', offset);
         
+        // Check if group has any expandable content
+        var groupHasDetails = group.some(function (item) {
+          return item.task.department || item.task.durationMinutes || item.task.notes || item.task.category;
+        });
+
         // Build tasks list
         var tasksHtml = '';
         group.forEach(function (item) {
@@ -595,13 +600,49 @@
           taskClass += '"';
           tasksHtml += '<div' + taskClass + '>' + taskNameHtml + '</div>';
         });
-        
+
+        // Build details panel (one section per task in the group that has details)
+        var detailsPanelHtml = '<div class="grouped-details-panel hidden">';
+        group.forEach(function (item) {
+          var hasItemDetails = item.task.department || item.task.durationMinutes || item.task.notes || item.task.category;
+          if (!hasItemDetails) return;
+          detailsPanelHtml += '<div class="grouped-detail-task">';
+          detailsPanelHtml += '<div class="grouped-detail-task-name">' + escapeHtml(item.task.name) + '</div>';
+          if (item.task.department) {
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Department:</span> ' + escapeHtml(item.task.department) + '</div>';
+          }
+          if (item.task.durationMinutes) {
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Duration:</span> ' + item.task.durationMinutes + ' minutes</div>';
+          }
+          if (item.task.category) {
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Category:</span> ' + escapeHtml(item.task.category) + '</div>';
+          }
+          if (item.task.notes) {
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Notes:</span> ' + escapeHtml(item.task.notes) + '</div>';
+          }
+          detailsPanelHtml += '</div>';
+        });
+        detailsPanelHtml += '</div>';
+
         row.innerHTML =
-          '<div class="timeline-offset">' + offsetLabel + '</div>' +
+          '<div class="timeline-offset' + (groupHasDetails ? ' offset-expandable' : '') + '" data-offset="' + offset + '">' + offsetLabel + '</div>' +
           '<div class="timeline-content">' +
             '<div class="grouped-tasks-wrapper">' + tasksHtml + '</div>' +
             '<div class="grouped-time-input-wrapper"><input type="text" class="timeline-input" placeholder="HHMM" data-offset="' + offset + '" /></div>' +
+            detailsPanelHtml +
           '</div>';
+
+        // Offset badge expand/collapse
+        if (groupHasDetails) {
+          var offsetBadge = row.querySelector('.timeline-offset');
+          offsetBadge.style.cursor = 'pointer';
+          offsetBadge.addEventListener('click', function () {
+            var panel = row.querySelector('.grouped-details-panel');
+            var isExpanded = !panel.classList.contains('hidden');
+            panel.classList.toggle('hidden');
+            offsetBadge.classList.toggle('offset-expanded', !isExpanded);
+          });
+        }
         
         var input = row.querySelector('.timeline-input');
         input.addEventListener('focus', function () {
@@ -662,39 +703,51 @@
         var offsetLabel = kt.offsetMinutes <= 0 ? String(kt.offsetMinutes) : '+' + kt.offsetMinutes;
         
         var hasDetails = kt.department || kt.durationMinutes || kt.category || kt.notes || kt.isConditional;
-        
+        var hasNoteOnly = kt.notes && !kt.department && !kt.durationMinutes && !kt.category && !kt.isConditional;
+
+        // Task name: clickable if has notes, with ⓘ indicator
+        var labelTag = kt.notes ? 'button type="button" class="timeline-label timeline-label-note" data-index="' + index + '"' : 'span class="timeline-label"';
+        var labelClose = kt.notes ? 'button' : 'span';
         var taskNameHtml = escapeHtml(kt.name);
         if (kt.notes) taskNameHtml += ' <span class="notes-indicator">ⓘ</span>';
-        
-        var detailsHtml = '';
+
+        // Inline note panel (shown when task name is tapped)
+        var inlineNoteHtml = kt.notes
+          ? '<div class="inline-note hidden" data-index="' + index + '">' + escapeHtml(kt.notes) + '</div>'
+          : '';
+
+        // Expand button (only if has non-note details too)
+        var expandBtnHtml = '';
+        var detailsPanelHtml = '';
         if (hasDetails) {
-          detailsHtml = '<button type="button" class="btn-expand-view" data-index="' + index + '" title="Show details">▼</button>' +
-            '<div class="view-details hidden" data-index="' + index + '">';
-          
+          expandBtnHtml = '<button type="button" class="btn-expand-view" data-index="' + index + '" title="Show details">▼</button>';
+          detailsPanelHtml = '<div class="view-details hidden" data-index="' + index + '">';
           if (kt.department) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Department:</span> ' + escapeHtml(kt.department) + '</div>';
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Department:</span> ' + escapeHtml(kt.department) + '</div>';
           }
           if (kt.durationMinutes) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Duration:</span> ' + kt.durationMinutes + ' minutes</div>';
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Duration:</span> ' + kt.durationMinutes + ' minutes</div>';
           }
           if (kt.category) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Category:</span> ' + escapeHtml(kt.category) + '</div>';
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Category:</span> ' + escapeHtml(kt.category) + '</div>';
           }
           if (kt.notes) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Notes:</span> ' + escapeHtml(kt.notes) + '</div>';
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Notes:</span> ' + escapeHtml(kt.notes) + '</div>';
           }
-          
-          detailsHtml += '</div>';
+          detailsPanelHtml += '</div>';
         }
-        
+
+        // Layout: [label] [expand▼] [input]  — expand button sits just left of input
         row.innerHTML =
           '<div class="timeline-offset">' + offsetLabel + '</div>' +
           '<div class="timeline-content">' +
-            '<span class="timeline-label">' + taskNameHtml + '</span>' +
+            '<' + labelTag + '>' + taskNameHtml + '</' + labelClose + '>' +
+            inlineNoteHtml +
+            expandBtnHtml +
             '<input type="text" class="timeline-input" placeholder="HHMM" data-index="' + index + '" />' +
-            detailsHtml +
+            detailsPanelHtml +
           '</div>';
-        
+
         var input = row.querySelector('.timeline-input');
         input.addEventListener('focus', function () {
           input.select();
@@ -710,7 +763,17 @@
         input.addEventListener('change', function () {
           commitTime(index, input);
         });
-        
+
+        // Tap task label to show/hide inline note
+        var labelEl = row.querySelector('.timeline-label-note');
+        if (labelEl) {
+          labelEl.addEventListener('click', function () {
+            var i = parseInt(this.getAttribute('data-index'), 10);
+            var noteEl = row.querySelector('.inline-note[data-index="' + i + '"]');
+            if (noteEl) noteEl.classList.toggle('hidden');
+          });
+        }
+
         var expandBtn = row.querySelector('.btn-expand-view');
         if (expandBtn) {
           expandBtn.addEventListener('click', function () {
@@ -794,10 +857,11 @@
         var canRemove = editing.length > 1;
         
         // Main row with basic fields
+        var hasNotes = kt.notes && kt.notes.trim().length > 0;
         row.innerHTML =
           '<div class="timeline-offset">' + offsetLabel + '</div>' +
           '<div class="timeline-content">' +
-            '<label class="timeline-label">Time ' + (index + 1) + '<button type="button" class="btn-expand" data-index="' + index + '" title="Show details">▼</button></label>' +
+            '<label class="timeline-label">Time ' + (index + 1) + (hasNotes ? ' <span class="notes-indicator">ⓘ</span>' : '') + '<button type="button" class="btn-expand" data-index="' + index + '" title="Show details">▼</button></label>' +
             '<input type="text" class="timeline-input-name" placeholder="Task name" value="' + escapeHtml(kt.name) + '" data-index="' + index + '" />' +
             '<input type="number" class="timeline-input-offset" placeholder="Offset" value="' + kt.offsetMinutes + '" data-index="' + index + '" />' +
             '<button type="button" class="btn-key-time" data-index="' + index + '" title="Toggle key time (red border in schedule)">' + (kt.isKeyTime ? 'Key time ✓' : 'Key time') + '</button>' +
