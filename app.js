@@ -493,13 +493,21 @@
     var html = '<span class="dept-filter-label">Dept:</span><div class="dept-chips">';
     html += '<button type="button" class="dept-chip' + (allActive ? ' active' : '') + '" data-dept="__all__">All</button>';
     depts.forEach(function (dept) {
-      var isActive = !!activeDepartments[dept];
-      html += '<button type="button" class="dept-chip' + (isActive ? ' active' : '') + '" data-dept="' + escapeHtml(dept) + '">' + escapeHtml(dept) + '</button>';
+      var state = activeDepartments[dept]; // undefined, 'include', or 'exclude'
+      var chipClass = 'dept-chip';
+      var chipLabel = escapeHtml(dept);
+      if (state === 'include') {
+        chipClass += ' active';
+      } else if (state === 'exclude') {
+        chipClass += ' excluded';
+        chipLabel = '✕ <s>' + chipLabel + '</s>';
+      }
+      html += '<button type="button" class="' + chipClass + '" data-dept="' + escapeHtml(dept) + '">' + chipLabel + '</button>';
     });
     html += '</div>';
     deptFilterBar.innerHTML = html;
 
-    // Chip click handlers
+    // Chip click handlers — cycle: neutral → include → exclude → neutral
     deptFilterBar.querySelectorAll('.dept-chip').forEach(function (chip) {
       chip.addEventListener('click', function () {
         var dept = this.getAttribute('data-dept');
@@ -507,10 +515,14 @@
         if (dept === '__all__') {
           activeDepartments = {};
         } else {
-          if (activeDepartments[dept]) {
-            delete activeDepartments[dept];
+          var current = activeDepartments[dept];
+          if (!current) {
+            activeDepartments[dept] = 'include';
+          } else if (current === 'include') {
+            activeDepartments[dept] = 'exclude';
           } else {
-            activeDepartments[dept] = true;
+            // 'exclude' → back to neutral
+            delete activeDepartments[dept];
           }
         }
 
@@ -753,14 +765,31 @@
     phaseListEl.innerHTML = '';
 
     // Helper: does a task match the active dept filter?
-    // Supports comma-separated departments (e.g., "Engineering, GSP")
+    // activeDepartments values are 'include' or 'exclude'
+    // Logic:
+    //   - Excluded dept match → always hide
+    //   - If any includes active → must match at least one include
+    //   - Only excludes active → show everything not excluded
     var hasDeptFilter = Object.keys(activeDepartments).length > 0;
+    var hasIncludes = Object.keys(activeDepartments).some(function (d) { return activeDepartments[d] === 'include'; });
+
     function taskPassesDeptFilter(kt) {
       if (!hasDeptFilter) return true;
-      if (!kt.department) return false;
-      return kt.department.split(',').some(function (d) {
-        return !!activeDepartments[d.trim()];
-      });
+      var taskDepts = kt.department
+        ? kt.department.split(',').map(function (d) { return d.trim(); })
+        : [];
+
+      // If task has any excluded department → hide it
+      var isExcluded = taskDepts.some(function (d) { return activeDepartments[d] === 'exclude'; });
+      if (isExcluded) return false;
+
+      // If there are active includes → task must match at least one
+      if (hasIncludes) {
+        return taskDepts.some(function (d) { return activeDepartments[d] === 'include'; });
+      }
+
+      // Only excludes active (and task passed exclusion check above) → show it
+      return true;
     }
 
     if (groupMode === 'grouped') {
