@@ -242,6 +242,78 @@ body {
   cursor: pointer;
 }
 
+/* Draft schedule — shown in admin mode only, dimmed */
+.schedule-card.draft-schedule {
+  opacity: 0.65;
+  border-style: dashed;
+}
+
+.draft-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: #757575;
+  color: #fff;
+  text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Admin action buttons on schedule cards (duplicate + delete) */
+.schedule-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn-card-duplicate {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+  font-family: inherit;
+  font-weight: 500;
+  border: 1px solid #9E9E9E;
+  background: #f5f5f5;
+  color: #424242;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn-card-duplicate:hover {
+  background: #eeeeee;
+  border-color: #757575;
+}
+
+.btn-card-duplicate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-card-delete {
+  padding: 5px 8px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  border: 1px solid #ffcdd2;
+  background: #fff8f8;
+  color: #c62828;
+  border-radius: 4px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.btn-card-delete:hover {
+  background: #ffebee;
+  border-color: #ef9a9a;
+}
+
+.btn-card-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-new-schedule {
   width: 100%;
   padding: 12px 14px;
@@ -659,6 +731,76 @@ main {
 }
 
 /* Schedule notes box (main view) */
+/* --- Department Filter Bar --- */
+.dept-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #eeeeee;
+  border-bottom: 1px solid var(--border-light);
+  border-radius: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.dept-filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--timeline-grey);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.dept-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.dept-chip {
+  font-size: 12px;
+  font-family: inherit;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1.5px solid #bbb;
+  background: var(--card-bg);
+  color: var(--timeline-grey);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.dept-chip.active {
+  background: var(--header-red);
+  border-color: var(--header-red);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Excluded dept chip — dark grey with strikethrough text */
+.dept-chip.excluded {
+  background: #424242;
+  border-color: #424242;
+  color: #fff;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.dept-chip.excluded:hover {
+  opacity: 1;
+  background: #212121;
+  border-color: #212121;
+}
+
+.dept-chip:not(.active):not(.excluded):hover {
+  border-color: var(--timeline-grey);
+  color: var(--text-body);
+}
+
 .schedule-notes-box {
   margin-top: 12px;
   padding: 10px 12px;
@@ -744,6 +886,112 @@ main {
 .schedule-notes-edit-textarea:focus {
   outline: none;
   border-color: var(--header-red);
+}
+
+/* Live/Draft toggle row in edit screen */
+.schedule-live-edit {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 14px;
+  margin-bottom: 4px;
+  border-bottom: 2px solid var(--border-light);
+}
+
+.schedule-live-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--timeline-grey);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn-live-toggle {
+  padding: 7px 14px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  font-weight: 600;
+  border-radius: 20px;
+  border: 2px solid;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-live-toggle.live {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border-color: #66bb6a;
+}
+
+.btn-live-toggle.live:hover {
+  background: #c8e6c9;
+}
+
+.btn-live-toggle.draft {
+  background: #fce4ec;
+  color: #b71c1c;
+  border-color: #ef9a9a;
+}
+
+.btn-live-toggle.draft:hover {
+  background: #f8bbd0;
+}
+
+/* Tappable task items in grouped view */
+.grouped-task-tappable {
+  cursor: pointer;
+  text-decoration: underline dotted rgba(0, 0, 0, 0.25);
+  text-underline-offset: 2px;
+}
+
+.grouped-task-tappable:hover .notes-indicator,
+.grouped-task-tappable:focus .notes-indicator {
+  opacity: 1;
+}
+
+/* Ensure inline notes inside grouped-tasks-wrapper span full width */
+.grouped-tasks-wrapper .inline-note {
+  margin-top: 2px;
+  width: 100%;
+}
+
+/* -----------------------------------------------
+   Ungrouped view: clickable task label for notes
+----------------------------------------------- */
+
+/* Make note-label button look like normal text */
+button.timeline-label-note {
+  all: unset;
+  flex: 1;
+  font-size: 0.875rem;
+  line-height: 1.3;
+  min-width: 0;
+  cursor: pointer;
+  text-decoration: underline dotted rgba(0, 0, 0, 0.25);
+  text-underline-offset: 2px;
+}
+
+button.timeline-label-note:hover .notes-indicator,
+button.timeline-label-note:focus .notes-indicator {
+  opacity: 1;
+}
+
+/* Inline note panel (shown on tap of task label) */
+.inline-note {
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border-left: 2px solid #9E9E9E;
+  border-radius: 2px;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-body);
+}
+
+.inline-note.hidden {
+  display: none;
 }
 
 /* Grouped view styles */

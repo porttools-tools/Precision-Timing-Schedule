@@ -64,10 +64,13 @@
   var keyTimes = [];
   var anchorIndex = null;
   var anchorOffsetMinutes = null; // Track anchor by offset for grouped mode
+  var lastAnchorMinutes = null;   // Last committed anchor time (minutes) — persists across filter changes
   var isApplying = false;
   var isAdminMode = false;
   var filterMode = 'all'; // 'all' or 'favorites'
   var groupMode = 'grouped'; // 'grouped' or 'ungrouped'
+  var activeDepartments = {}; // { 'Engineering': true } — empty = show all
+  var currentScheduleIsLive = false; // Live status of currently open schedule
 
   // --- DOM ---
   var landingScreen = document.getElementById('landingScreen');
@@ -98,6 +101,7 @@
   var focusSink = document.getElementById('focusSink');
   var filterBtn = document.getElementById('filterBtn');
   var groupBtn = document.getElementById('groupBtn');
+  var deptFilterBar = document.getElementById('deptFilterBar');
 
   // --- LocalStorage for Favorites ---
   function getFavorites() {
@@ -172,6 +176,10 @@
     if (adminBtn) adminBtn.textContent = isAdminMode ? 'Exit Admin' : 'Admin';
     if (newScheduleBtn) newScheduleBtn.style.display = isAdminMode ? '' : 'none';
     if (editScheduleBtn) editScheduleBtn.style.display = isAdminMode ? '' : 'none';
+    // Re-render the landing list so draft schedules show/hide immediately on admin toggle
+    if (landingScreen && !landingScreen.classList.contains('hidden')) {
+      renderLanding();
+    }
   }
 
   // --- Supabase API (tables: aircraft, key_time) ---
@@ -179,7 +187,7 @@
     if (!supabase) return Promise.resolve([]);
     return supabase
       .from('aircraft')
-      .select('id, name')
+      .select('id, name, is_live')
       .order('name')
       .then(function (res) {
         if (res.error) {
@@ -352,9 +360,46 @@
     });
   }
 
+  function duplicateSchedule(sourceId, sourceName) {
+    if (!supabase) return Promise.reject(new Error('No Supabase'));
+    var newName = 'Copy of ' + sourceName;
+    // Load source key times, create new aircraft row (draft), then copy key times
+    return loadKeyTimes(sourceId).then(function (sourceTimes) {
+      return supabase
+        .from('aircraft')
+        .insert({ name: newName, is_live: false })
+        .select('id')
+        .single()
+        .then(function (res) {
+          if (res.error) return Promise.reject(res.error);
+          var newId = res.data.id;
+          if (sourceTimes.length === 0) return Promise.resolve(newId);
+          var rows = sourceTimes.map(function (kt, i) {
+            return {
+              aircraft_id: newId,
+              name: kt.name,
+              offset_minutes: kt.offsetMinutes,
+              sort_order: kt.sortOrder != null ? kt.sortOrder : i + 1,
+              is_key_time: !!kt.isKeyTime,
+              department: kt.department || null,
+              duration_minutes: kt.durationMinutes != null ? kt.durationMinutes : null,
+              notes: kt.notes || null,
+              is_conditional: !!kt.isConditional,
+              category: kt.category || null
+            };
+          });
+          return supabase.from('key_time').insert(rows).then(function (ir) {
+            if (ir.error) return Promise.reject(ir.error);
+            return newId;
+          });
+        });
+    });
+  }
+
   // --- Navigation ---
   function showLanding() {
     document.body.classList.add('on-landing');
+    window.scrollTo(0, 0);
     landingScreen.classList.remove('hidden');
     mainScreen.classList.add('hidden');
     editScreen.classList.add('hidden');
@@ -369,6 +414,7 @@
 
   function showPTS() {
     document.body.classList.remove('on-landing');
+    window.scrollTo(0, 0);
     landingScreen.classList.add('hidden');
     newScheduleScreen.classList.add('hidden');
     mainScreen.classList.remove('hidden');
@@ -417,6 +463,80 @@
     groupBtn.innerHTML = '<span class="group-option' + (groupMode === 'grouped' ? ' active' : '') + '">⊟</span><span class="group-divider">|</span><span class="group-option' + (groupMode === 'ungrouped' ? ' active' : '') + '">☰</span>';
   }
 
+  // --- Department Filter ---
+  function renderDeptFilter() {
+    if (!deptFilterBar) return;
+
+    // Collect unique, non-null departments from keyTimes
+    // Supports comma-separated departments (e.g., "Engineering, GSP")
+    var deptSet = {};
+    keyTimes.forEach(function (kt) {
+      if (kt.department && kt.department.trim()) {
+        kt.department.split(',').forEach(function (d) {
+          var trimmed = d.trim();
+          if (trimmed) deptSet[trimmed] = true;
+        });
+      }
+    });
+    var depts = Object.keys(deptSet).sort();
+
+    // Hide filter bar if no department data
+    if (depts.length === 0) {
+      deptFilterBar.classList.add('hidden');
+      deptFilterBar.innerHTML = '';
+      return;
+    }
+
+    // Build chip bar
+    deptFilterBar.classList.remove('hidden');
+    var allActive = Object.keys(activeDepartments).length === 0;
+    var html = '<span class="dept-filter-label">Dept:</span><div class="dept-chips">';
+    html += '<button type="button" class="dept-chip' + (allActive ? ' active' : '') + '" data-dept="__all__">All</button>';
+    depts.forEach(function (dept) {
+      var state = activeDepartments[dept]; // undefined, 'include', or 'exclude'
+      var chipClass = 'dept-chip';
+      var chipLabel = escapeHtml(dept);
+      if (state === 'include') {
+        chipClass += ' active';
+      } else if (state === 'exclude') {
+        chipClass += ' excluded';
+        chipLabel = '✕ <s>' + chipLabel + '</s>';
+      }
+      html += '<button type="button" class="' + chipClass + '" data-dept="' + escapeHtml(dept) + '">' + chipLabel + '</button>';
+    });
+    html += '</div>';
+    deptFilterBar.innerHTML = html;
+
+    // Chip click handlers — cycle: neutral → include → exclude → neutral
+    deptFilterBar.querySelectorAll('.dept-chip').forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        var dept = this.getAttribute('data-dept');
+
+        if (dept === '__all__') {
+          activeDepartments = {};
+        } else {
+          var current = activeDepartments[dept];
+          if (!current) {
+            activeDepartments[dept] = 'include';
+          } else if (current === 'include') {
+            activeDepartments[dept] = 'exclude';
+          } else {
+            // 'exclude' → back to neutral
+            delete activeDepartments[dept];
+          }
+        }
+
+        renderDeptFilter();
+        renderMainScreen();
+
+        // Re-apply calculated times to all newly visible rows using stored anchor
+        if (anchorIndex != null && lastAnchorMinutes != null) {
+          applyScheduleFromAnchor(lastAnchorMinutes);
+        }
+      });
+    });
+  }
+
   function renderLanding() {
     // Load filter mode from localStorage
     filterMode = getFilterMode();
@@ -458,10 +578,27 @@
         return;
       }
 
-      filteredList.forEach(function (a) {
+      // In normal mode, hide draft (non-live) schedules
+      // In admin mode, show all schedules with DRAFT badge for non-live ones
+      var visibleList = isAdminMode
+        ? filteredList
+        : filteredList.filter(function (a) { return a.is_live === true; });
+
+      if (visibleList.length === 0) {
+        var noLive = document.createElement('p');
+        noLive.className = 'hint';
+        noLive.textContent = isAdminMode
+          ? 'No schedules yet. Create one with "New schedule".'
+          : 'No live schedules available.';
+        scheduleListEl.appendChild(noLive);
+        return;
+      }
+
+      visibleList.forEach(function (a) {
         var isFav = favorites.indexOf(a.id) >= 0;
+        var isDraft = !a.is_live;
         var card = document.createElement('div');
-        card.className = 'schedule-card' + (isFav ? ' favorited' : '');
+        card.className = 'schedule-card' + (isFav ? ' favorited' : '') + (isDraft ? ' draft-schedule' : '');
         
         var star = document.createElement('span');
         star.className = 'schedule-star';
@@ -476,21 +613,82 @@
         nameSpan.className = 'schedule-card-name';
         nameSpan.textContent = a.name;
         nameSpan.addEventListener('click', function () {
-          openSchedule(a.id, a.name);
+          openSchedule(a.id, a.name, a.is_live === true);
         });
 
         card.appendChild(star);
         card.appendChild(nameSpan);
+
+        // Show DRAFT badge in admin mode for non-live schedules
+        if (isDraft && isAdminMode) {
+          var draftBadge = document.createElement('span');
+          draftBadge.className = 'draft-badge';
+          draftBadge.textContent = 'DRAFT';
+          card.appendChild(draftBadge);
+        }
+
+        // Admin mode: show action buttons (duplicate + delete)
+        if (isAdminMode) {
+          var adminActions = document.createElement('div');
+          adminActions.className = 'schedule-card-actions';
+
+          var dupBtn = document.createElement('button');
+          dupBtn.type = 'button';
+          dupBtn.className = 'btn-card-duplicate';
+          dupBtn.title = 'Duplicate schedule';
+          dupBtn.textContent = '⧉ Copy';
+          dupBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            dupBtn.disabled = true;
+            dupBtn.textContent = 'Copying…';
+            duplicateSchedule(a.id, a.name)
+              .then(function () {
+                renderLanding();
+              })
+              .catch(function (err) {
+                alert('Could not duplicate: ' + (err.message || err));
+                dupBtn.disabled = false;
+                dupBtn.textContent = '⧉ Copy';
+              });
+          });
+
+          var delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'btn-card-delete';
+          delBtn.title = 'Delete schedule';
+          delBtn.textContent = '🗑';
+          delBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (!confirm('Delete "' + a.name + '"?\n\nThis cannot be undone.')) return;
+            delBtn.disabled = true;
+            deleteSchedule(a.id)
+              .then(function () {
+                renderLanding();
+              })
+              .catch(function (err) {
+                alert('Could not delete: ' + (err.message || err));
+                delBtn.disabled = false;
+              });
+          });
+
+          adminActions.appendChild(dupBtn);
+          adminActions.appendChild(delBtn);
+          card.appendChild(adminActions);
+        }
+
         scheduleListEl.appendChild(card);
       });
     });
   }
 
-  function openSchedule(id, name) {
+  function openSchedule(id, name, isLive) {
     currentScheduleId = id;
     currentScheduleName = name;
+    currentScheduleIsLive = isLive === true;
     // Load group mode from localStorage
     groupMode = getGroupMode();
+    activeDepartments = {}; // Reset dept filter for new schedule
+    lastAnchorMinutes = null; // Reset anchor time for new schedule
     phaseListEl.innerHTML = '';
     phaseListEl.appendChild(document.createTextNode('Loading…'));
     
@@ -505,9 +703,11 @@
       if (keyTimes.length === 0) {
         phaseListEl.innerHTML = '<p class="hint">No times for this schedule. Edit Schedule to add some.</p>';
         showPTS();
+        renderDeptFilter();
         return;
       }
       showPTS();
+      renderDeptFilter();
       renderMainScreen();
     });
   }
@@ -527,13 +727,16 @@
         input.value = formatTime(minutes);
       });
     } else {
-      // In ungrouped mode, update inputs by index
-      var inputs = phaseListEl.querySelectorAll('.timeline-input');
-      for (var i = 0; i < keyTimes.length; i++) {
-        var diff = keyTimes[i].offsetMinutes - anchorOffset;
-        var minutes = anchorMinutes + diff;
-        if (inputs[i]) inputs[i].value = formatTime(minutes);
-      }
+      // In ungrouped mode, look up each input by data-index attribute
+      // (some rows may be hidden by dept filter, so we can't use positional index)
+      phaseListEl.querySelectorAll('.timeline-input').forEach(function (input) {
+        var idx = parseInt(input.getAttribute('data-index'), 10);
+        if (!isNaN(idx) && keyTimes[idx]) {
+          var diff = keyTimes[idx].offsetMinutes - anchorOffset;
+          var minutes = anchorMinutes + diff;
+          input.value = formatTime(minutes);
+        }
+      });
     }
     
     isApplying = false;
@@ -547,9 +750,13 @@
     if (minutes == null) return;
 
     anchorIndex = index;
-    phaseListEl.querySelectorAll('.timeline-row').forEach(function (row, i) {
-      row.classList.toggle('anchor', i === index);
+    // Use data-index attribute to find the anchor row (supports filtered view)
+    phaseListEl.querySelectorAll('.timeline-row').forEach(function (row) {
+      var idx = row.querySelector('.timeline-input[data-index]');
+      var rowIndex = idx ? parseInt(idx.getAttribute('data-index'), 10) : -1;
+      row.classList.toggle('anchor', rowIndex === index);
     });
+    lastAnchorMinutes = minutes;
     applyScheduleFromAnchor(minutes);
     inputEl.value = formatTime(minutes);
   }
@@ -557,56 +764,104 @@
   function renderMainScreen() {
     phaseListEl.innerHTML = '';
 
+    // Helper: does a task match the active dept filter?
+    // activeDepartments values are 'include' or 'exclude'
+    // Logic:
+    //   - Excluded dept match → always hide
+    //   - If any includes active → must match at least one include
+    //   - Only excludes active → show everything not excluded
+    var hasDeptFilter = Object.keys(activeDepartments).length > 0;
+    var hasIncludes = Object.keys(activeDepartments).some(function (d) { return activeDepartments[d] === 'include'; });
+
+    function taskPassesDeptFilter(kt) {
+      if (!hasDeptFilter) return true;
+      var taskDepts = kt.department
+        ? kt.department.split(',').map(function (d) { return d.trim(); })
+        : [];
+
+      // If task has any excluded department → hide it
+      var isExcluded = taskDepts.some(function (d) { return activeDepartments[d] === 'exclude'; });
+      if (isExcluded) return false;
+
+      // If there are active includes → task must match at least one
+      if (hasIncludes) {
+        return taskDepts.some(function (d) { return activeDepartments[d] === 'include'; });
+      }
+
+      // Only excludes active (and task passed exclusion check above) → show it
+      return true;
+    }
+
     if (groupMode === 'grouped') {
       // --- GROUPED VIEW: Group tasks by offsetMinutes ---
       var groups = {};
       keyTimes.forEach(function (kt, index) {
         var offset = kt.offsetMinutes;
-        if (!groups[offset]) {
-          groups[offset] = [];
-        }
+        if (!groups[offset]) groups[offset] = [];
         groups[offset].push({ task: kt, originalIndex: index });
       });
 
       var sortedOffsets = Object.keys(groups).map(Number).sort(function (a, b) { return a - b; });
-      
+
       sortedOffsets.forEach(function (offset) {
         var group = groups[offset];
+
+        // Apply dept filter: only include tasks that pass
+        var visibleGroup = hasDeptFilter
+          ? group.filter(function (item) { return taskPassesDeptFilter(item.task); })
+          : group;
+
+        // Skip this offset row entirely if no tasks are visible
+        if (visibleGroup.length === 0) return;
         var offsetLabel = offset <= 0 ? String(offset) : '+' + offset;
-        
-        // Determine if whole group should be highlighted (only if ALL tasks are key times)
         var allKeyTimes = group.every(function (item) { return item.task.isKeyTime; });
-        
-        // Find if any task in this group is the current anchor
         var isAnchorGroup = group.some(function (item) { return item.originalIndex === anchorIndex; });
-        
-        // Build the row
+
         var row = document.createElement('div');
         row.className = 'timeline-row grouped-row' + (isAnchorGroup ? ' anchor' : '') + (allKeyTimes ? ' key-time-highlight' : '');
         row.setAttribute('data-offset', offset);
-        
-        // Build tasks list
+
+        // Build the task items for the tasks wrapper.
+        // In both compact and expanded states, each task with notes is tappable.
+        // Expanded state uses a different CSS class for more visual separation.
         var tasksHtml = '';
-        group.forEach(function (item) {
+        visibleGroup.forEach(function (item, gIdx) {
+          var taskId = 'g' + offset + '_' + gIdx;
           var taskNameHtml = escapeHtml(item.task.name);
           if (item.task.notes) taskNameHtml += ' <span class="notes-indicator">ⓘ</span>';
-          var taskClass = item.task.isKeyTime ? ' class="grouped-task-item key-time-task' : ' class="grouped-task-item';
-          if (item.task.isConditional) taskClass += ' conditional-task';
-          taskClass += '"';
-          tasksHtml += '<div' + taskClass + '>' + taskNameHtml + '</div>';
+
+          var itemClass = 'grouped-task-item';
+          if (item.task.isKeyTime) itemClass += ' key-time-task';
+          if (item.task.isConditional) itemClass += ' conditional-task';
+
+          if (item.task.notes) {
+            // Tappable task item + inline note panel (note text only, no name repetition)
+            tasksHtml +=
+              '<div class="' + itemClass + ' grouped-task-tappable" data-task-id="' + taskId + '" role="button" tabindex="0">' + taskNameHtml + '</div>' +
+              '<div class="inline-note hidden grouped-inline-note" data-task-id="' + taskId + '">' + escapeHtml(item.task.notes) + '</div>';
+          } else {
+            tasksHtml += '<div class="' + itemClass + '">' + taskNameHtml + '</div>';
+          }
         });
-        
+
         row.innerHTML =
-          '<div class="timeline-offset">' + offsetLabel + '</div>' +
+          '<div class="timeline-offset" data-offset="' + offset + '">' + offsetLabel + '</div>' +
           '<div class="timeline-content">' +
             '<div class="grouped-tasks-wrapper">' + tasksHtml + '</div>' +
             '<div class="grouped-time-input-wrapper"><input type="text" class="timeline-input" placeholder="HHMM" data-offset="' + offset + '" /></div>' +
           '</div>';
-        
-        var input = row.querySelector('.timeline-input');
-        input.addEventListener('focus', function () {
-          input.select();
+
+        // Task tap: show/hide inline note
+        row.querySelectorAll('.grouped-task-tappable').forEach(function (taskEl) {
+          taskEl.addEventListener('click', function () {
+            var taskId = this.getAttribute('data-task-id');
+            var noteEl = row.querySelector('.grouped-inline-note[data-task-id="' + taskId + '"]');
+            if (noteEl) noteEl.classList.toggle('hidden');
+          });
         });
+
+        var input = row.querySelector('.timeline-input');
+        input.addEventListener('focus', function () { input.select(); });
         input.addEventListener('keydown', function (e) {
           if (e.key === 'Enter') {
             e.preventDefault();
@@ -614,17 +869,12 @@
             if (!value) return;
             var minutes = parseTime(value);
             if (minutes == null) return;
-            
-            // Set anchor to first task in this group
             anchorIndex = group[0].originalIndex;
             anchorOffsetMinutes = offset;
-            
-            // Update anchor styling
             phaseListEl.querySelectorAll('.timeline-row').forEach(function (r) {
-              var rowOffset = parseInt(r.getAttribute('data-offset'), 10);
-              r.classList.toggle('anchor', rowOffset === offset);
+              r.classList.toggle('anchor', parseInt(r.getAttribute('data-offset'), 10) === offset);
             });
-            
+            lastAnchorMinutes = minutes;
             applyScheduleFromAnchor(minutes);
             input.value = formatTime(minutes);
             input.blur();
@@ -636,25 +886,25 @@
           if (!value) return;
           var minutes = parseTime(value);
           if (minutes == null) return;
-          
           anchorIndex = group[0].originalIndex;
           anchorOffsetMinutes = offset;
-          
           phaseListEl.querySelectorAll('.timeline-row').forEach(function (r) {
-            var rowOffset = parseInt(r.getAttribute('data-offset'), 10);
-            r.classList.toggle('anchor', rowOffset === offset);
+            r.classList.toggle('anchor', parseInt(r.getAttribute('data-offset'), 10) === offset);
           });
-          
+          lastAnchorMinutes = minutes;
           applyScheduleFromAnchor(minutes);
           input.value = formatTime(minutes);
         });
-        
+
         phaseListEl.appendChild(row);
       });
       
     } else {
-      // --- UNGROUPED VIEW: Individual rows (original behavior) ---
+      // --- UNGROUPED VIEW: Individual rows ---
       keyTimes.forEach(function (kt, index) {
+        // Apply dept filter — skip this task if it doesn't match
+        if (!taskPassesDeptFilter(kt)) return;
+
         var row = document.createElement('div');
         var rowClasses = 'timeline-row' + (index === anchorIndex ? ' anchor' : '') + (kt.isKeyTime ? ' key-time-highlight' : '');
         if (kt.isConditional) rowClasses += ' conditional-task';
@@ -662,39 +912,51 @@
         var offsetLabel = kt.offsetMinutes <= 0 ? String(kt.offsetMinutes) : '+' + kt.offsetMinutes;
         
         var hasDetails = kt.department || kt.durationMinutes || kt.category || kt.notes || kt.isConditional;
-        
+        var hasNoteOnly = kt.notes && !kt.department && !kt.durationMinutes && !kt.category && !kt.isConditional;
+
+        // Task name: clickable if has notes, with ⓘ indicator
+        var labelTag = kt.notes ? 'button type="button" class="timeline-label timeline-label-note" data-index="' + index + '"' : 'span class="timeline-label"';
+        var labelClose = kt.notes ? 'button' : 'span';
         var taskNameHtml = escapeHtml(kt.name);
         if (kt.notes) taskNameHtml += ' <span class="notes-indicator">ⓘ</span>';
-        
-        var detailsHtml = '';
+
+        // Inline note panel (shown when task name is tapped)
+        var inlineNoteHtml = kt.notes
+          ? '<div class="inline-note hidden" data-index="' + index + '">' + escapeHtml(kt.notes) + '</div>'
+          : '';
+
+        // Expand button (only if has non-note details too)
+        var expandBtnHtml = '';
+        var detailsPanelHtml = '';
         if (hasDetails) {
-          detailsHtml = '<button type="button" class="btn-expand-view" data-index="' + index + '" title="Show details">▼</button>' +
-            '<div class="view-details hidden" data-index="' + index + '">';
-          
+          expandBtnHtml = '<button type="button" class="btn-expand-view" data-index="' + index + '" title="Show details">▼</button>';
+          detailsPanelHtml = '<div class="view-details hidden" data-index="' + index + '">';
           if (kt.department) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Department:</span> ' + escapeHtml(kt.department) + '</div>';
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Department:</span> ' + escapeHtml(kt.department) + '</div>';
           }
           if (kt.durationMinutes) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Duration:</span> ' + kt.durationMinutes + ' minutes</div>';
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Duration:</span> ' + kt.durationMinutes + ' minutes</div>';
           }
           if (kt.category) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Category:</span> ' + escapeHtml(kt.category) + '</div>';
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Category:</span> ' + escapeHtml(kt.category) + '</div>';
           }
           if (kt.notes) {
-            detailsHtml += '<div class="detail-row"><span class="detail-label">Notes:</span> ' + escapeHtml(kt.notes) + '</div>';
+            detailsPanelHtml += '<div class="detail-row"><span class="detail-label">Notes:</span> ' + escapeHtml(kt.notes) + '</div>';
           }
-          
-          detailsHtml += '</div>';
+          detailsPanelHtml += '</div>';
         }
-        
+
+        // Layout: [label] [expand▼] [input]  — expand button sits just left of input
         row.innerHTML =
           '<div class="timeline-offset">' + offsetLabel + '</div>' +
           '<div class="timeline-content">' +
-            '<span class="timeline-label">' + taskNameHtml + '</span>' +
+            '<' + labelTag + '>' + taskNameHtml + '</' + labelClose + '>' +
+            inlineNoteHtml +
+            expandBtnHtml +
             '<input type="text" class="timeline-input" placeholder="HHMM" data-index="' + index + '" />' +
-            detailsHtml +
+            detailsPanelHtml +
           '</div>';
-        
+
         var input = row.querySelector('.timeline-input');
         input.addEventListener('focus', function () {
           input.select();
@@ -710,7 +972,17 @@
         input.addEventListener('change', function () {
           commitTime(index, input);
         });
-        
+
+        // Tap task label to show/hide inline note
+        var labelEl = row.querySelector('.timeline-label-note');
+        if (labelEl) {
+          labelEl.addEventListener('click', function () {
+            var i = parseInt(this.getAttribute('data-index'), 10);
+            var noteEl = row.querySelector('.inline-note[data-index="' + i + '"]');
+            if (noteEl) noteEl.classList.toggle('hidden');
+          });
+        }
+
         var expandBtn = row.querySelector('.btn-expand-view');
         if (expandBtn) {
           expandBtn.addEventListener('click', function () {
@@ -754,6 +1026,7 @@
     
     var editScheduleName = currentScheduleName;
     var editScheduleNotes = currentScheduleNotes;
+    var editIsLive = currentScheduleIsLive; // Track live status for this edit session
 
     function renderEditList() {
       editing.sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
@@ -786,6 +1059,22 @@
       notesTextarea.addEventListener('input', function () {
         editScheduleNotes = this.value;
       });
+
+      // Live toggle row
+      var liveRow = document.createElement('div');
+      liveRow.className = 'schedule-live-edit';
+      liveRow.innerHTML =
+        '<span class="schedule-live-label">Visibility:</span>' +
+        '<button type="button" class="btn-live-toggle' + (editIsLive ? ' live' : ' draft') + '">' +
+          (editIsLive ? '🟢 Live — visible to all users' : '🔴 Draft — only visible in admin mode') +
+        '</button>';
+      editListEl.appendChild(liveRow);
+
+      var liveToggleBtn = liveRow.querySelector('.btn-live-toggle');
+      liveToggleBtn.addEventListener('click', function () {
+        editIsLive = !editIsLive;
+        renderEditList();
+      });
       
       editing.forEach(function (kt, index) {
         var row = document.createElement('div');
@@ -794,10 +1083,11 @@
         var canRemove = editing.length > 1;
         
         // Main row with basic fields
+        var hasNotes = kt.notes && kt.notes.trim().length > 0;
         row.innerHTML =
           '<div class="timeline-offset">' + offsetLabel + '</div>' +
           '<div class="timeline-content">' +
-            '<label class="timeline-label">Time ' + (index + 1) + '<button type="button" class="btn-expand" data-index="' + index + '" title="Show details">▼</button></label>' +
+            '<label class="timeline-label">Time ' + (index + 1) + (hasNotes ? ' <span class="notes-indicator">ⓘ</span>' : '') + '<button type="button" class="btn-expand" data-index="' + index + '" title="Show details">▼</button></label>' +
             '<input type="text" class="timeline-input-name" placeholder="Task name" value="' + escapeHtml(kt.name) + '" data-index="' + index + '" />' +
             '<input type="number" class="timeline-input-offset" placeholder="Offset" value="' + kt.offsetMinutes + '" data-index="' + index + '" />' +
             '<button type="button" class="btn-key-time" data-index="' + index + '" title="Toggle key time (red border in schedule)">' + (kt.isKeyTime ? 'Key time ✓' : 'Key time') + '</button>' +
@@ -973,10 +1263,10 @@
         anchorIndex = idx >= 0 ? idx : null;
       }
       
-      // Update schedule name if it changed
-      var namePromise = editScheduleName !== currentScheduleName
-        ? supabase.from('aircraft').update({ name: editScheduleName }).eq('id', currentScheduleId)
-        : Promise.resolve();
+      // Always update aircraft record (name and/or is_live may have changed)
+      var aircraftUpdate = { is_live: editIsLive };
+      if (editScheduleName !== currentScheduleName) aircraftUpdate.name = editScheduleName;
+      var namePromise = supabase.from('aircraft').update(aircraftUpdate).eq('id', currentScheduleId);
       
       // Save schedule name, key times, and schedule notes
       Promise.all([
@@ -987,9 +1277,12 @@
         .then(function () {
           currentScheduleName = editScheduleName;
           currentScheduleNotes = editScheduleNotes;
+          currentScheduleIsLive = editIsLive;
           scheduleNameEl.textContent = currentScheduleName; // Update header
           mainScreen.classList.remove('hidden');
           editScreen.classList.add('hidden');
+          activeDepartments = {}; // Reset dept filter after save (dept names may have changed)
+          renderDeptFilter();
           renderMainScreen();
           if (anchorIndex != null) {
             var inputs = phaseListEl.querySelectorAll('.timeline-input');
