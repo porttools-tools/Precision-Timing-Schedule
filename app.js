@@ -360,6 +360,42 @@
     });
   }
 
+  function duplicateSchedule(sourceId, sourceName) {
+    if (!supabase) return Promise.reject(new Error('No Supabase'));
+    var newName = 'Copy of ' + sourceName;
+    // Load source key times, create new aircraft row (draft), then copy key times
+    return loadKeyTimes(sourceId).then(function (sourceTimes) {
+      return supabase
+        .from('aircraft')
+        .insert({ name: newName, is_live: false })
+        .select('id')
+        .single()
+        .then(function (res) {
+          if (res.error) return Promise.reject(res.error);
+          var newId = res.data.id;
+          if (sourceTimes.length === 0) return Promise.resolve(newId);
+          var rows = sourceTimes.map(function (kt, i) {
+            return {
+              aircraft_id: newId,
+              name: kt.name,
+              offset_minutes: kt.offsetMinutes,
+              sort_order: kt.sortOrder != null ? kt.sortOrder : i + 1,
+              is_key_time: !!kt.isKeyTime,
+              department: kt.department || null,
+              duration_minutes: kt.durationMinutes != null ? kt.durationMinutes : null,
+              notes: kt.notes || null,
+              is_conditional: !!kt.isConditional,
+              category: kt.category || null
+            };
+          });
+          return supabase.from('key_time').insert(rows).then(function (ir) {
+            if (ir.error) return Promise.reject(ir.error);
+            return newId;
+          });
+        });
+    });
+  }
+
   // --- Navigation ---
   function showLanding() {
     document.body.classList.add('on-landing');
@@ -577,6 +613,55 @@
           draftBadge.className = 'draft-badge';
           draftBadge.textContent = 'DRAFT';
           card.appendChild(draftBadge);
+        }
+
+        // Admin mode: show action buttons (duplicate + delete)
+        if (isAdminMode) {
+          var adminActions = document.createElement('div');
+          adminActions.className = 'schedule-card-actions';
+
+          var dupBtn = document.createElement('button');
+          dupBtn.type = 'button';
+          dupBtn.className = 'btn-card-duplicate';
+          dupBtn.title = 'Duplicate schedule';
+          dupBtn.textContent = '⧉ Copy';
+          dupBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            dupBtn.disabled = true;
+            dupBtn.textContent = 'Copying…';
+            duplicateSchedule(a.id, a.name)
+              .then(function () {
+                renderLanding();
+              })
+              .catch(function (err) {
+                alert('Could not duplicate: ' + (err.message || err));
+                dupBtn.disabled = false;
+                dupBtn.textContent = '⧉ Copy';
+              });
+          });
+
+          var delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'btn-card-delete';
+          delBtn.title = 'Delete schedule';
+          delBtn.textContent = '🗑';
+          delBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (!confirm('Delete "' + a.name + '"?\n\nThis cannot be undone.')) return;
+            delBtn.disabled = true;
+            deleteSchedule(a.id)
+              .then(function () {
+                renderLanding();
+              })
+              .catch(function (err) {
+                alert('Could not delete: ' + (err.message || err));
+                delBtn.disabled = false;
+              });
+          });
+
+          adminActions.appendChild(dupBtn);
+          adminActions.appendChild(delBtn);
+          card.appendChild(adminActions);
         }
 
         scheduleListEl.appendChild(card);
