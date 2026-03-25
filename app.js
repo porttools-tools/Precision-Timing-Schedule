@@ -119,6 +119,11 @@
   var delayMinRemainingDisplay = document.getElementById('delayMinRemainingDisplay');
   var delayBlocksOffHint = document.getElementById('delayBlocksOffHint');
   var delayCodeRows = document.getElementById('delayCodeRows');
+  var delayAddCodeBtn = document.getElementById('delayAddCodeBtn');
+  var delayCodePickerScreen = document.getElementById('delayCodePickerScreen');
+  var delayCodeSearchInput = document.getElementById('delayCodeSearchInput');
+  var delayCodeCategorySelect = document.getElementById('delayCodeCategorySelect');
+  var delayCodeListEl = document.getElementById('delayCodeList');
 
   // --- LocalStorage for Favorites ---
   function getFavorites() {
@@ -434,6 +439,10 @@
   }
 
   // --- Navigation ---
+  function hideDelayCodePickerScreen() {
+    if (delayCodePickerScreen) delayCodePickerScreen.classList.add('hidden');
+  }
+
   function showLanding() {
     document.body.classList.add('on-landing');
     window.scrollTo(0, 0);
@@ -442,6 +451,7 @@
     editScreen.classList.add('hidden');
     newScheduleScreen.classList.add('hidden');
     if (delayScreen) delayScreen.classList.add('hidden');
+    hideDelayCodePickerScreen();
     scheduleNameEl.classList.add('hidden');
     backToSchedulesBtn.classList.add('hidden');
     if (filterBtn) filterBtn.classList.remove('hidden');
@@ -458,6 +468,7 @@
     mainScreen.classList.remove('hidden');
     editScreen.classList.add('hidden');
     if (delayScreen) delayScreen.classList.add('hidden');
+    hideDelayCodePickerScreen();
     scheduleNameEl.textContent = currentScheduleName;
     scheduleNameEl.classList.remove('hidden');
     backToSchedulesBtn.classList.remove('hidden');
@@ -477,6 +488,7 @@
     editScreen.classList.add('hidden');
     newScheduleScreen.classList.remove('hidden');
     if (delayScreen) delayScreen.classList.add('hidden');
+    hideDelayCodePickerScreen();
     scheduleNameEl.classList.add('hidden');
     backToSchedulesBtn.classList.add('hidden');
     if (filterBtn) filterBtn.classList.add('hidden');
@@ -489,6 +501,7 @@
     mainScreen.classList.add('hidden');
     editScreen.classList.remove('hidden');
     if (delayScreen) delayScreen.classList.add('hidden');
+    hideDelayCodePickerScreen();
     if (filterBtn) filterBtn.classList.add('hidden');
     if (groupBtn) groupBtn.classList.add('hidden');
   }
@@ -507,6 +520,180 @@
     return inputUngrouped ? String(inputUngrouped.value || '').trim() : '';
   }
 
+  function getDelayCodes() {
+    return Array.isArray(window.DELAY_CODES) ? window.DELAY_CODES : [];
+  }
+
+  /** True for phones/tablets — avoid immediate input.focus() so the picker isn’t covered by the keyboard (iOS/Android). */
+  function isCoarsePointer() {
+    try {
+      return window.matchMedia('(pointer: coarse)').matches;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function getDelayCodeCategories() {
+    var seen = {};
+    var out = [];
+    getDelayCodes().forEach(function (c) {
+      var cat = (c.category || '').trim();
+      if (cat && !seen[cat]) {
+        seen[cat] = true;
+        out.push(cat);
+      }
+    });
+    out.sort(function (a, b) {
+      return a.localeCompare(b);
+    });
+    return out;
+  }
+
+  function populateDelayCodeCategorySelect() {
+    if (!delayCodeCategorySelect) return;
+    var categories = getDelayCodeCategories();
+    delayCodeCategorySelect.innerHTML = '';
+    var allOpt = document.createElement('option');
+    allOpt.value = '__all__';
+    allOpt.textContent = 'All categories';
+    delayCodeCategorySelect.appendChild(allOpt);
+    categories.forEach(function (cat) {
+      var opt = document.createElement('option');
+      opt.value = cat;
+      opt.textContent = cat;
+      delayCodeCategorySelect.appendChild(opt);
+    });
+    delayCodeCategorySelect.value = '__all__';
+  }
+
+  function sumDelayCodeMinutes() {
+    if (!delayCodeRows) return 0;
+    var sum = 0;
+    delayCodeRows.querySelectorAll('.delay-code-minutes-input').forEach(function (inp) {
+      var v = String(inp.value || '').trim();
+      if (v === '') return;
+      var n = parseInt(v, 10);
+      if (!isNaN(n) && n > 0) sum += n;
+    });
+    return sum;
+  }
+
+  function renderDelayCodePickerList() {
+    if (!delayCodeListEl) return;
+    var allCodes = getDelayCodes();
+    if (allCodes.length === 0) {
+      delayCodeListEl.innerHTML =
+        '<p class="delay-code-picker-empty">Delay codes did not load. Ensure delay-codes-data.js is in the same folder as this page.</p>';
+      return;
+    }
+    var catFilter =
+      delayCodeCategorySelect && delayCodeCategorySelect.value && delayCodeCategorySelect.value !== '__all__'
+        ? delayCodeCategorySelect.value
+        : null;
+    var base = catFilter
+      ? allCodes.filter(function (c) {
+          return c.category === catFilter;
+        })
+      : allCodes.slice();
+    var q = (delayCodeSearchInput && delayCodeSearchInput.value ? delayCodeSearchInput.value : '').trim().toLowerCase();
+    var tokens = q ? q.split(/\s+/).filter(function (t) {
+      return t.length > 0;
+    }) : [];
+    var filtered =
+      tokens.length === 0
+        ? base
+        : base.filter(function (c) {
+            var hay = (c.code + ' ' + c.description + ' ' + c.category).toLowerCase();
+            return tokens.every(function (t) {
+              return hay.indexOf(t) !== -1;
+            });
+          });
+    var html = '';
+    if (base.length === 0) {
+      delayCodeListEl.innerHTML = '<p class="delay-code-picker-empty">No delay codes in this category.</p>';
+      return;
+    }
+    filtered.forEach(function (c) {
+      html +=
+        '<button type="button" class="delay-code-picker-item" role="option" data-code="' +
+        escapeHtml(c.code) +
+        '">' +
+        '<span class="dcp-code">' +
+        escapeHtml(c.code) +
+        '</span>' +
+        '<span class="dcp-cat">' +
+        escapeHtml(c.category) +
+        '</span>' +
+        '<span class="dcp-desc">' +
+        escapeHtml(c.description) +
+        '</span></button>';
+    });
+    if (filtered.length === 0) {
+      html = '<p class="delay-code-picker-empty">No codes match this category and search.</p>';
+    }
+    delayCodeListEl.innerHTML = html;
+  }
+
+  function addDelayCodeRow(entry) {
+    if (!delayCodeRows || !entry) return;
+    var wrap = document.createElement('div');
+    wrap.className = 'delay-code-applied-row';
+    wrap.innerHTML =
+      '<div class="delay-code-applied-head">' +
+      '<span class="delay-code-applied-code">' +
+      escapeHtml(entry.code) +
+      '</span>' +
+      '<button type="button" class="btn-remove-delay-code" aria-label="Remove code">×</button></div>' +
+      '<p class="delay-code-applied-desc">' +
+      escapeHtml(entry.description) +
+      '</p>' +
+      '<label class="delay-code-minutes-label">Minutes</label>' +
+      '<input type="number" class="delay-code-minutes-input delay-number-input" min="0" step="1" placeholder="0" />';
+    delayCodeRows.appendChild(wrap);
+    var inp = wrap.querySelector('.delay-code-minutes-input');
+    if (inp && !isCoarsePointer()) {
+      inp.focus();
+    }
+  }
+
+  function showDelayCodePicker() {
+    if (!delayCodePickerScreen || !delayScreen) return;
+    landingScreen.classList.add('hidden');
+    mainScreen.classList.add('hidden');
+    editScreen.classList.add('hidden');
+    newScheduleScreen.classList.add('hidden');
+    delayScreen.classList.add('hidden');
+    delayCodePickerScreen.classList.remove('hidden');
+    scheduleNameEl.textContent = currentScheduleName;
+    scheduleNameEl.classList.remove('hidden');
+    backToSchedulesBtn.classList.remove('hidden');
+    if (filterBtn) filterBtn.classList.add('hidden');
+    if (groupBtn) groupBtn.classList.add('hidden');
+    adminBtn.classList.add('hidden');
+    updateAdminUI();
+    window.scrollTo(0, 0);
+    populateDelayCodeCategorySelect();
+    if (delayCodeSearchInput) delayCodeSearchInput.value = '';
+    renderDelayCodePickerList();
+    if (delayCodePickerScreen) {
+      delayCodePickerScreen.scrollIntoView({ block: 'start', behavior: 'auto' });
+    }
+    if (delayCodeSearchInput && !isCoarsePointer()) {
+      delayCodeSearchInput.focus();
+    }
+  }
+
+  function hideDelayCodePicker() {
+    if (!delayCodePickerScreen || !delayScreen) return;
+    delayCodePickerScreen.classList.add('hidden');
+    delayScreen.classList.remove('hidden');
+    window.scrollTo(0, 0);
+  }
+
+  function isDelayCodePickerVisible() {
+    return !!(delayCodePickerScreen && !delayCodePickerScreen.classList.contains('hidden'));
+  }
+
   function updateDelayHelperDisplays() {
     if (!delayTotalMinDisplay || !delayMinRemainingDisplay) return;
     var s = parseTime((delayScheduledInput && delayScheduledInput.value) || '');
@@ -514,6 +701,7 @@
     var latacRaw = delayLatacInput ? delayLatacInput.value.trim() : '';
     var latac = latacRaw === '' ? 0 : parseInt(latacRaw, 10);
     if (isNaN(latac) || latac < 0) latac = 0;
+    var codeMinTotal = sumDelayCodeMinutes();
 
     if (s == null || a == null) {
       delayTotalMinDisplay.textContent = '—';
@@ -522,7 +710,7 @@
     }
     var delta = signedMinuteDelta(s, a);
     delayTotalMinDisplay.textContent = String(delta);
-    delayMinRemainingDisplay.textContent = String(delta - latac);
+    delayMinRemainingDisplay.textContent = String(delta - latac - codeMinTotal);
   }
 
   function showDelayHelper() {
@@ -533,6 +721,7 @@
     mainScreen.classList.add('hidden');
     editScreen.classList.add('hidden');
     newScheduleScreen.classList.add('hidden');
+    hideDelayCodePickerScreen();
     delayScreen.classList.remove('hidden');
     scheduleNameEl.textContent = currentScheduleName;
     scheduleNameEl.classList.remove('hidden');
@@ -1622,6 +1811,10 @@
 
   // --- Back to schedule list (from delay helper → schedule) ---
   backToSchedulesBtn.addEventListener('click', function () {
+    if (isDelayCodePickerVisible()) {
+      hideDelayCodePicker();
+      return;
+    }
     if (delayScreen && !delayScreen.classList.contains('hidden')) {
       showPTS();
       renderDeptFilter();
@@ -1647,6 +1840,51 @@
   if (delayLatacInput) {
     delayLatacInput.addEventListener('input', updateDelayHelperDisplays);
     delayLatacInput.addEventListener('change', updateDelayHelperDisplays);
+  }
+
+  if (delayAddCodeBtn) {
+    delayAddCodeBtn.addEventListener('click', function () {
+      showDelayCodePicker();
+    });
+  }
+  if (delayCodeSearchInput) {
+    delayCodeSearchInput.addEventListener('input', function () {
+      renderDelayCodePickerList();
+    });
+  }
+  if (delayCodeCategorySelect) {
+    delayCodeCategorySelect.addEventListener('change', function () {
+      renderDelayCodePickerList();
+    });
+  }
+  if (delayCodeListEl) {
+    delayCodeListEl.addEventListener('click', function (e) {
+      var item = e.target.closest('.delay-code-picker-item');
+      if (!item || !delayCodeListEl.contains(item)) return;
+      var code = item.getAttribute('data-code');
+      if (!code) return;
+      var entry = getDelayCodes().find(function (c) {
+        return c.code === code;
+      });
+      if (!entry) return;
+      addDelayCodeRow(entry);
+      hideDelayCodePicker();
+      updateDelayHelperDisplays();
+    });
+  }
+  if (delayCodeRows) {
+    delayCodeRows.addEventListener('click', function (e) {
+      var btn = e.target.closest('.btn-remove-delay-code');
+      if (!btn || !delayCodeRows.contains(btn)) return;
+      var row = btn.closest('.delay-code-applied-row');
+      if (row) row.remove();
+      updateDelayHelperDisplays();
+    });
+    delayCodeRows.addEventListener('input', function (e) {
+      if (e.target && e.target.classList && e.target.classList.contains('delay-code-minutes-input')) {
+        updateDelayHelperDisplays();
+      }
+    });
   }
 
   // --- New schedule button ---
