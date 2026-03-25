@@ -57,6 +57,14 @@
     return div.innerHTML;
   }
 
+  /** Shortest signed minute difference scheduled → actual (±12h wrap). */
+  function signedMinuteDelta(schedMin, actMin) {
+    var d = actMin - schedMin;
+    if (d > 720) d -= 1440;
+    if (d < -720) d += 1440;
+    return d;
+  }
+
   // --- State ---
   var currentScheduleId = null;
   var currentScheduleName = '';
@@ -102,6 +110,15 @@
   var filterBtn = document.getElementById('filterBtn');
   var groupBtn = document.getElementById('groupBtn');
   var deptFilterBar = document.getElementById('deptFilterBar');
+  var delayScreen = document.getElementById('delayScreen');
+  var delayHelperBtn = document.getElementById('delayHelperBtn');
+  var delayScheduledInput = document.getElementById('delayScheduledInput');
+  var delayActualInput = document.getElementById('delayActualInput');
+  var delayLatacInput = document.getElementById('delayLatacInput');
+  var delayTotalMinDisplay = document.getElementById('delayTotalMinDisplay');
+  var delayMinRemainingDisplay = document.getElementById('delayMinRemainingDisplay');
+  var delayBlocksOffHint = document.getElementById('delayBlocksOffHint');
+  var delayCodeRows = document.getElementById('delayCodeRows');
 
   // --- LocalStorage for Favorites ---
   function getFavorites() {
@@ -198,11 +215,21 @@
       });
   }
 
+  /** Treat DB / JSON boolean-ish values as true (PostgREST is usually boolean; some paths are not). */
+  function dbBoolTrue(v) {
+    if (v === true || v === 1) return true;
+    if (typeof v === 'string') {
+      var s = v.toLowerCase();
+      return s === 'true' || s === 't' || s === '1' || s === 'yes';
+    }
+    return false;
+  }
+
   function loadKeyTimes(aircraftId) {
     if (!supabase) return Promise.resolve([]);
     return supabase
       .from('key_time')
-      .select('id, name, offset_minutes, sort_order, is_key_time, department, duration_minutes, notes, is_conditional, category')
+      .select('id, name, offset_minutes, sort_order, is_key_time, is_blocks_off, department, duration_minutes, notes, is_conditional, category')
       .eq('aircraft_id', aircraftId)
       .order('sort_order', { ascending: true })
       .then(function (res) {
@@ -218,6 +245,7 @@
             offsetMinutes: Number(r.offset_minutes),
             sortOrder: r.sort_order != null ? r.sort_order : i + 1,
             isKeyTime: r.is_key_time === true,
+            isBlocksOff: dbBoolTrue(r.is_blocks_off),
             department: r.department || null,
             durationMinutes: r.duration_minutes != null ? Number(r.duration_minutes) : null,
             notes: r.notes || null,
@@ -226,6 +254,12 @@
           };
         });
         list.sort(function (a, b) { return a.offsetMinutes - b.offsetMinutes; });
+        var blockIdx = list.findIndex(function (kt) { return kt.isBlocksOff; });
+        if (blockIdx >= 0) {
+          list.forEach(function (kt, j) {
+            kt.isBlocksOff = j === blockIdx;
+          });
+        }
         return list;
       });
   }
@@ -247,6 +281,7 @@
             offset_minutes: Number(kt.offsetMinutes),
             sort_order: i + 1,
             is_key_time: !!kt.isKeyTime,
+            is_blocks_off: !!kt.isBlocksOff,
             department: kt.department || null,
             duration_minutes: kt.durationMinutes != null ? Number(kt.durationMinutes) : null,
             notes: kt.notes || null,
@@ -335,6 +370,7 @@
             offset_minutes: Number(kt.offsetMinutes),
             sort_order: i + 1,
             is_key_time: !!kt.isKeyTime,
+            is_blocks_off: !!kt.isBlocksOff,
             department: kt.department || null,
             duration_minutes: kt.durationMinutes != null ? Number(kt.durationMinutes) : null,
             notes: kt.notes || null,
@@ -381,6 +417,7 @@
               offset_minutes: kt.offsetMinutes,
               sort_order: kt.sortOrder != null ? kt.sortOrder : i + 1,
               is_key_time: !!kt.isKeyTime,
+              is_blocks_off: !!kt.isBlocksOff,
               department: kt.department || null,
               duration_minutes: kt.durationMinutes != null ? kt.durationMinutes : null,
               notes: kt.notes || null,
@@ -404,6 +441,7 @@
     mainScreen.classList.add('hidden');
     editScreen.classList.add('hidden');
     newScheduleScreen.classList.add('hidden');
+    if (delayScreen) delayScreen.classList.add('hidden');
     scheduleNameEl.classList.add('hidden');
     backToSchedulesBtn.classList.add('hidden');
     if (filterBtn) filterBtn.classList.remove('hidden');
@@ -419,6 +457,7 @@
     newScheduleScreen.classList.add('hidden');
     mainScreen.classList.remove('hidden');
     editScreen.classList.add('hidden');
+    if (delayScreen) delayScreen.classList.add('hidden');
     scheduleNameEl.textContent = currentScheduleName;
     scheduleNameEl.classList.remove('hidden');
     backToSchedulesBtn.classList.remove('hidden');
@@ -437,6 +476,7 @@
     mainScreen.classList.add('hidden');
     editScreen.classList.add('hidden');
     newScheduleScreen.classList.remove('hidden');
+    if (delayScreen) delayScreen.classList.add('hidden');
     scheduleNameEl.classList.add('hidden');
     backToSchedulesBtn.classList.add('hidden');
     if (filterBtn) filterBtn.classList.add('hidden');
@@ -448,8 +488,73 @@
     document.body.classList.remove('on-landing');
     mainScreen.classList.add('hidden');
     editScreen.classList.remove('hidden');
+    if (delayScreen) delayScreen.classList.add('hidden');
     if (filterBtn) filterBtn.classList.add('hidden');
     if (groupBtn) groupBtn.classList.add('hidden');
+  }
+
+  function getCarriedActualDeparture() {
+    var marked = phaseListEl.querySelector('.timeline-input[data-blocks-off="true"]');
+    if (marked) return String(marked.value || '').trim();
+    var blocksIdx = keyTimes.findIndex(function (kt) { return kt.isBlocksOff; });
+    if (blocksIdx < 0) return '';
+    if (groupMode === 'grouped') {
+      var off = keyTimes[blocksIdx].offsetMinutes;
+      var input = phaseListEl.querySelector('.timeline-input[data-offset="' + off + '"]');
+      return input ? String(input.value || '').trim() : '';
+    }
+    var inputUngrouped = phaseListEl.querySelector('.timeline-input[data-index="' + blocksIdx + '"]');
+    return inputUngrouped ? String(inputUngrouped.value || '').trim() : '';
+  }
+
+  function updateDelayHelperDisplays() {
+    if (!delayTotalMinDisplay || !delayMinRemainingDisplay) return;
+    var s = parseTime((delayScheduledInput && delayScheduledInput.value) || '');
+    var a = parseTime((delayActualInput && delayActualInput.value) || '');
+    var latacRaw = delayLatacInput ? delayLatacInput.value.trim() : '';
+    var latac = latacRaw === '' ? 0 : parseInt(latacRaw, 10);
+    if (isNaN(latac) || latac < 0) latac = 0;
+
+    if (s == null || a == null) {
+      delayTotalMinDisplay.textContent = '—';
+      delayMinRemainingDisplay.textContent = '—';
+      return;
+    }
+    var delta = signedMinuteDelta(s, a);
+    delayTotalMinDisplay.textContent = String(delta);
+    delayMinRemainingDisplay.textContent = String(delta - latac);
+  }
+
+  function showDelayHelper() {
+    if (!delayScreen) return;
+    document.body.classList.remove('on-landing');
+    window.scrollTo(0, 0);
+    landingScreen.classList.add('hidden');
+    mainScreen.classList.add('hidden');
+    editScreen.classList.add('hidden');
+    newScheduleScreen.classList.add('hidden');
+    delayScreen.classList.remove('hidden');
+    scheduleNameEl.textContent = currentScheduleName;
+    scheduleNameEl.classList.remove('hidden');
+    backToSchedulesBtn.classList.remove('hidden');
+    if (filterBtn) filterBtn.classList.add('hidden');
+    if (groupBtn) groupBtn.classList.add('hidden');
+    adminBtn.classList.add('hidden');
+    updateAdminUI();
+
+    var blocksIdx = keyTimes.findIndex(function (kt) { return kt.isBlocksOff; });
+    var hasBlocksOffInput = !!phaseListEl.querySelector('.timeline-input[data-blocks-off="true"]');
+    if (delayScheduledInput) delayScheduledInput.value = '';
+    if (delayActualInput) delayActualInput.value = getCarriedActualDeparture();
+    if (delayLatacInput) delayLatacInput.value = '';
+    if (delayBlocksOffHint) {
+      delayBlocksOffHint.textContent =
+        blocksIdx < 0 && !hasBlocksOffInput
+          ? 'This schedule has no Blocks off row — enter the actual departure time below, or use the same time as on the timeline.'
+          : '';
+    }
+    if (delayCodeRows) delayCodeRows.innerHTML = '';
+    updateDelayHelperDisplays();
   }
 
   // --- Landing ---
@@ -816,6 +921,7 @@
         var offsetLabel = offset <= 0 ? String(offset) : '+' + offset;
         var allKeyTimes = group.every(function (item) { return item.task.isKeyTime; });
         var isAnchorGroup = group.some(function (item) { return item.originalIndex === anchorIndex; });
+        var groupHasBlocksOff = group.some(function (item) { return item.task.isBlocksOff; });
 
         var row = document.createElement('div');
         row.className = 'timeline-row grouped-row' + (isAnchorGroup ? ' anchor' : '') + (allKeyTimes ? ' key-time-highlight' : '');
@@ -848,7 +954,7 @@
           '<div class="timeline-offset" data-offset="' + offset + '">' + offsetLabel + '</div>' +
           '<div class="timeline-content">' +
             '<div class="grouped-tasks-wrapper">' + tasksHtml + '</div>' +
-            '<div class="grouped-time-input-wrapper"><input type="text" class="timeline-input" placeholder="HHMM" data-offset="' + offset + '" /></div>' +
+            '<div class="grouped-time-input-wrapper"><input type="text" class="timeline-input" placeholder="HHMM" data-offset="' + offset + '"' + (groupHasBlocksOff ? ' data-blocks-off="true"' : '') + ' /></div>' +
           '</div>';
 
         // Task tap: show/hide inline note
@@ -953,7 +1059,7 @@
             '<' + labelTag + '>' + taskNameHtml + '</' + labelClose + '>' +
             inlineNoteHtml +
             expandBtnHtml +
-            '<input type="text" class="timeline-input" placeholder="HHMM" data-index="' + index + '" />' +
+            '<input type="text" class="timeline-input" placeholder="HHMM" data-index="' + index + '"' + (kt.isBlocksOff ? ' data-blocks-off="true"' : '') + ' />' +
             detailsPanelHtml +
           '</div>';
 
@@ -1016,6 +1122,7 @@
         name: p.name, 
         offsetMinutes: p.offsetMinutes, 
         isKeyTime: !!p.isKeyTime,
+        isBlocksOff: !!p.isBlocksOff,
         department: p.department || '',
         durationMinutes: p.durationMinutes,
         notes: p.notes || '',
@@ -1091,6 +1198,7 @@
             '<input type="text" class="timeline-input-name" placeholder="Task name" value="' + escapeHtml(kt.name) + '" data-index="' + index + '" />' +
             '<input type="number" class="timeline-input-offset" placeholder="Offset" value="' + kt.offsetMinutes + '" data-index="' + index + '" />' +
             '<button type="button" class="btn-key-time" data-index="' + index + '" title="Toggle key time (red border in schedule)">' + (kt.isKeyTime ? 'Key time ✓' : 'Key time') + '</button>' +
+            '<button type="button" class="btn-blocks-off" data-index="' + index + '" title="This row’s time is used as Actual Departure in the Delay helper">' + (kt.isBlocksOff ? 'Blocks off ✓' : 'Blocks off') + '</button>' +
             (canRemove ? '<button type="button" class="btn-remove-key-time" data-index="' + index + '" title="Remove time">Remove</button>' : '') +
             '<div class="edit-details hidden" data-index="' + index + '">' +
               '<input type="text" class="timeline-input-department" placeholder="Department (e.g., Engineering, GSP)" value="' + escapeHtml(kt.department || '') + '" data-index="' + index + '" />' +
@@ -1200,6 +1308,20 @@
           renderEditList();
         });
       });
+      editListEl.querySelectorAll('.btn-blocks-off').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          var i = parseInt(this.getAttribute('data-index'), 10);
+          if (!editing[i].isBlocksOff) {
+            editing.forEach(function (e) {
+              e.isBlocksOff = false;
+            });
+            editing[i].isBlocksOff = true;
+          } else {
+            editing[i].isBlocksOff = false;
+          }
+          renderEditList();
+        });
+      });
       editListEl.querySelectorAll('.btn-remove-key-time').forEach(function (btn) {
         btn.addEventListener('click', function () {
           var i = parseInt(this.getAttribute('data-index'), 10);
@@ -1212,7 +1334,7 @@
     renderEditList();
 
     editAddKeyTimeBtn.onclick = function () {
-      editing.push({ id: null, name: '', offsetMinutes: 0, isKeyTime: false });
+      editing.push({ id: null, name: '', offsetMinutes: 0, isKeyTime: false, isBlocksOff: false });
       renderEditList();
     };
 
@@ -1250,6 +1372,7 @@
           name: e.name, 
           offsetMinutes: e.offsetMinutes, 
           isKeyTime: e.isKeyTime,
+          isBlocksOff: !!e.isBlocksOff,
           department: e.department || null,
           durationMinutes: e.durationMinutes,
           notes: e.notes || null,
@@ -1285,10 +1408,18 @@
           renderDeptFilter();
           renderMainScreen();
           if (anchorIndex != null) {
-            var inputs = phaseListEl.querySelectorAll('.timeline-input');
-            var current = inputs[anchorIndex].value;
-            var minutes = parseTime(current);
-            if (minutes != null) applyScheduleFromAnchor(minutes);
+            var minutesAfterSave = null;
+            if (groupMode === 'grouped') {
+              var anchorOff = keyTimes[anchorIndex].offsetMinutes;
+              phaseListEl.querySelectorAll('.timeline-input').forEach(function (input) {
+                var off = parseInt(input.getAttribute('data-offset'), 10);
+                if (off === anchorOff && input.value) minutesAfterSave = parseTime(input.value);
+              });
+            } else {
+              var anchorInp = phaseListEl.querySelector('.timeline-input[data-index="' + anchorIndex + '"]');
+              if (anchorInp && anchorInp.value) minutesAfterSave = parseTime(anchorInp.value);
+            }
+            if (minutesAfterSave != null) applyScheduleFromAnchor(minutesAfterSave);
           }
         })
         .catch(function (err) {
@@ -1298,11 +1429,11 @@
   }
 
   // --- New schedule editor ---
-  var newKeyTimes = [{ name: '', offsetMinutes: 0, isKeyTime: false }];
+  var newKeyTimes = [{ name: '', offsetMinutes: 0, isKeyTime: false, isBlocksOff: false }];
 
   function renderNewScheduleEditor() {
     newScheduleNameEl.value = '';
-    newKeyTimes = [{ name: '', offsetMinutes: 0, isKeyTime: false }];
+    newKeyTimes = [{ name: '', offsetMinutes: 0, isKeyTime: false, isBlocksOff: false }];
     renderNewKeyTimeList();
   }
 
@@ -1321,6 +1452,7 @@
           '<input type="text" class="timeline-input-name" placeholder="e.g. Doors closed" data-index="' + index + '" value="' + escapeHtml(kt.name || '') + '" />' +
           '<input type="number" class="timeline-input-offset" placeholder="0" data-index="' + index + '" value="' + (offsetVal === '' ? '' : offsetVal) + '" />' +
           '<button type="button" class="btn-key-time" data-index="' + index + '" title="Toggle key time (red border in schedule)">' + (kt.isKeyTime ? 'Key time ✓' : 'Key time') + '</button>' +
+          '<button type="button" class="btn-blocks-off" data-index="' + index + '" title="This row’s time is used as Actual Departure in the Delay helper">' + (kt.isBlocksOff ? 'Blocks off ✓' : 'Blocks off') + '</button>' +
           (canRemove ? '<button type="button" class="btn-remove-key-time" data-index="' + index + '" title="Remove time">Remove</button>' : '') +
         '</div>';
       newKeyTimeListEl.appendChild(row);
@@ -1375,6 +1507,20 @@
         renderNewKeyTimeList();
       });
     });
+    newKeyTimeListEl.querySelectorAll('.btn-blocks-off').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var i = parseInt(this.getAttribute('data-index'), 10);
+        if (!newKeyTimes[i].isBlocksOff) {
+          newKeyTimes.forEach(function (e) {
+            e.isBlocksOff = false;
+          });
+          newKeyTimes[i].isBlocksOff = true;
+        } else {
+          newKeyTimes[i].isBlocksOff = false;
+        }
+        renderNewKeyTimeList();
+      });
+    });
     newKeyTimeListEl.querySelectorAll('.btn-remove-key-time').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var i = parseInt(this.getAttribute('data-index'), 10);
@@ -1385,7 +1531,7 @@
   }
 
   addKeyTimeBtn.addEventListener('click', function () {
-    newKeyTimes.push({ name: '', offsetMinutes: 0, isKeyTime: false });
+    newKeyTimes.push({ name: '', offsetMinutes: 0, isKeyTime: false, isBlocksOff: false });
     renderNewKeyTimeList();
   });
 
@@ -1395,7 +1541,8 @@
       return {
         name: (kt.name && kt.name.trim()) || '',
         offsetMinutes: kt.offsetMinutes !== undefined && kt.offsetMinutes !== null ? Number(kt.offsetMinutes) : 0,
-        isKeyTime: !!kt.isKeyTime
+        isKeyTime: !!kt.isKeyTime,
+        isBlocksOff: !!kt.isBlocksOff
       };
     }).filter(function (kt) {
       return (kt.name && kt.name.length) > 0 || kt.offsetMinutes !== undefined;
@@ -1419,6 +1566,7 @@
         keyTimes = list;
         anchorIndex = null;
         showPTS();
+        renderDeptFilter();
         renderMainScreen();
       })
       .catch(function (err) {
@@ -1472,11 +1620,34 @@
     renderEditScreen();
   });
 
-  // --- Back to schedule list ---
+  // --- Back to schedule list (from delay helper → schedule) ---
   backToSchedulesBtn.addEventListener('click', function () {
+    if (delayScreen && !delayScreen.classList.contains('hidden')) {
+      showPTS();
+      renderDeptFilter();
+      return;
+    }
     showLanding();
     renderLanding();
   });
+
+  if (delayHelperBtn) {
+    delayHelperBtn.addEventListener('click', function () {
+      showDelayHelper();
+    });
+  }
+  if (delayScheduledInput) {
+    delayScheduledInput.addEventListener('input', updateDelayHelperDisplays);
+    delayScheduledInput.addEventListener('change', updateDelayHelperDisplays);
+  }
+  if (delayActualInput) {
+    delayActualInput.addEventListener('input', updateDelayHelperDisplays);
+    delayActualInput.addEventListener('change', updateDelayHelperDisplays);
+  }
+  if (delayLatacInput) {
+    delayLatacInput.addEventListener('input', updateDelayHelperDisplays);
+    delayLatacInput.addEventListener('change', updateDelayHelperDisplays);
+  }
 
   // --- New schedule button ---
   newScheduleBtn.addEventListener('click', function () {
