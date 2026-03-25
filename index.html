@@ -50,7 +50,7 @@
       <div id="deptFilterBar" class="dept-filter-bar hidden"></div>
       <div id="phaseList" class="phase-list"></div>
       <div class="actions actions-row actions-main-btns">
-        <button type="button" class="btn-delay" id="delayHelperBtn">Delay</button>
+        <button type="button" class="btn-delay" id="delayHelperBtn">Delay calculator</button>
         <button type="button" class="btn-edit" id="editScheduleBtn">Edit Schedule</button>
       </div>
     </section>
@@ -74,12 +74,30 @@
           <label for="delayLatacInput">IMSP LATAC (min)</label>
           <input type="number" id="delayLatacInput" class="delay-number-input" min="0" step="1" placeholder="0" />
         </div>
+        <div class="delay-field delay-add-code-field">
+          <button type="button" id="delayAddCodeBtn" class="btn-delay-add-code">+ Add delay code</button>
+        </div>
         <div id="delayCodeRows" class="delay-code-rows"></div>
         <div class="delay-field delay-readonly">
           <span class="delay-field-label">Min remaining</span>
           <div id="delayMinRemainingDisplay" class="delay-calculated" aria-live="polite">—</div>
         </div>
       </div>
+    </section>
+
+    <section id="delayCodePickerScreen" class="screen hidden delay-code-picker-screen">
+      <p class="hint delay-code-picker-hint">Choose a category and search if needed, then tap a row to add it to the calculator.</p>
+      <div class="delay-code-picker-toolbar">
+        <div class="delay-code-picker-field">
+          <label for="delayCodeCategorySelect" class="delay-code-picker-label">Category</label>
+          <select id="delayCodeCategorySelect" class="delay-code-category-select"></select>
+        </div>
+        <div class="delay-code-picker-field">
+          <label for="delayCodeSearchInput" class="delay-code-picker-label">Search</label>
+          <input type="search" id="delayCodeSearchInput" class="delay-code-search-input" placeholder="Code or description…" autocomplete="off" enterkeyhint="search" />
+        </div>
+      </div>
+      <div id="delayCodeList" class="delay-code-picker-list" role="listbox" aria-label="Delay codes"></div>
     </section>
 
     <section id="editScreen" class="screen hidden">
@@ -121,6 +139,7 @@
   <div id="focusSink" tabindex="-1" style="position: fixed; top: -100px; left: -100px; width: 1px; height: 1px; opacity: 0;"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="delay-codes-data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
