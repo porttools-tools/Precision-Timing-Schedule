@@ -8,7 +8,8 @@ ADD COLUMN IF NOT EXISTS department TEXT,
 ADD COLUMN IF NOT EXISTS duration_minutes INTEGER,
 ADD COLUMN IF NOT EXISTS notes TEXT,
 ADD COLUMN IF NOT EXISTS is_conditional BOOLEAN DEFAULT FALSE,
-ADD COLUMN IF NOT EXISTS category TEXT;
+ADD COLUMN IF NOT EXISTS category TEXT,
+ADD COLUMN IF NOT EXISTS is_blocks_off BOOLEAN DEFAULT FALSE;
 
 -- Create schedule_metadata table for version control and general notes
 CREATE TABLE IF NOT EXISTS schedule_metadata (

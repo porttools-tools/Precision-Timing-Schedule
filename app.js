@@ -524,6 +524,15 @@
     return Array.isArray(window.DELAY_CODES) ? window.DELAY_CODES : [];
   }
 
+  /** True for phones/tablets — avoid immediate input.focus() so the picker isn’t covered by the keyboard (iOS/Android). */
+  function isCoarsePointer() {
+    try {
+      return window.matchMedia('(pointer: coarse)').matches;
+    } catch (e) {
+      return false;
+    }
+  }
+
   function getDelayCodeCategories() {
     var seen = {};
     var out = [];
@@ -642,7 +651,9 @@
       '<input type="number" class="delay-code-minutes-input delay-number-input" min="0" step="1" placeholder="0" />';
     delayCodeRows.appendChild(wrap);
     var inp = wrap.querySelector('.delay-code-minutes-input');
-    if (inp) inp.focus();
+    if (inp && !isCoarsePointer()) {
+      inp.focus();
+    }
   }
 
   function showDelayCodePicker() {
@@ -664,7 +675,10 @@
     populateDelayCodeCategorySelect();
     if (delayCodeSearchInput) delayCodeSearchInput.value = '';
     renderDelayCodePickerList();
-    if (delayCodeSearchInput) {
+    if (delayCodePickerScreen) {
+      delayCodePickerScreen.scrollIntoView({ block: 'start', behavior: 'auto' });
+    }
+    if (delayCodeSearchInput && !isCoarsePointer()) {
       delayCodeSearchInput.focus();
     }
   }
